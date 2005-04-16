@@ -8,6 +8,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/stat.h>
+#include <linux/list.h>
 #include "cu_softmac_api.h"
 
 MODULE_LICENSE("GPL");
@@ -17,6 +18,12 @@ typedef struct {
   struct list_head list;
   CU_SOFTMAC_NETIF_HANDLE mynfh;
   unsigned char txbitrate;
+  /*
+   * XXX expose the "defer" properties...
+   */
+  int defertx;
+  int deferrx;
+  int maxinflight;
 } CHEESYMAC_INSTANCE;
 
 static CHEESYMAC_INSTANCE* my_softmac_instances = 0;
@@ -65,11 +72,18 @@ static void __exit softmac_cheesymac_exit(void)
 	 */
 	if (my_softmac_instances) {
 	  CHEESYMAC_INSTANCE* cheesy_instance = 0;
+	  struct list_head* tmp = 0;
 	  struct list_head* p = 0;
 	  
-	  list_for_each(p,my_softmac_instances->list) {
+	  /*
+	   * Walk through all instances, remove from the linked 
+	   * list and then dispose of them cleanly.
+	   */
+	  list_for_each_safe(p,tmp,my_softmac_instances->list) {
 	    cheesy_instance = list_entry(p,CHEESYMAC_INSTANCE,list);
+	    list_del(p);
 	    cu_softmac_detach_mac(cheesy_instance->mynfh,cheesy_instance);
+	    kfree(cheesy_instance);
 	  }
 	}
 }
@@ -81,12 +95,16 @@ static int cu_softmac_packet_tx_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
   int runagain = 0;
 
   if (myinstance) {
+    cu_softmac_set_default_phy_props(nfh,packet);
+    cu_softmac_set_tx_bitrate(nfh,packet,myinstance->txbitrate);
     cu_softmac_sendpacket(nfh,256,packet);
+  }
+  else {
+    cu_softmac_free_skb(packet);
   }
 
   return runagain;
 }
-
 
 static int cu_softmac_packet_tx_done_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
 						void* mydata,
@@ -126,6 +144,9 @@ static int cu_softmac_work_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
   int runagain = 0;
 
   if (myinstance) {
+    /*
+     * The CheesyMAC doesn't have any work to do...
+     */
   }
 
   return runagain;
@@ -135,10 +156,13 @@ static int cu_softmac_detach_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
 				       void* mydata, int intop) {
   CHEESYMAC_INSTANCE* myinstance = mydata;
   if (myinstance) {
+    // We're booted -- kill off the instance
+    list_del(myinstance->list);
+    kfree(myinstance);
+    myinstance = 0;
   }
   return 0;
 }
-
 
 static int cu_softmac_create_instance_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,CU_SOFTMAC_CLIENT_INFO* clientinfo) {
   int result = 0;
