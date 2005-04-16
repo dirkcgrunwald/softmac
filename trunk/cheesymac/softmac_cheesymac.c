@@ -22,70 +22,69 @@ typedef struct {
    * XXX expose the "defer" properties...
    */
   int defertx;
+  int defertxdone;
   int deferrx;
   int maxinflight;
+
+  /*
+   * The cheesymac uses Linux sk_buff queues when it needs
+   * to keep packets around for deferred handling.
+   */
+  struct sk_buff_head tx_skbqueue;
+  struct sk_buff_head txdone_skbqueue;
+  struct sk_buff_head rx_skbqueue;
 } CHEESYMAC_INSTANCE;
 
 static CHEESYMAC_INSTANCE* my_softmac_instances = 0;
 
-#if 0
-static short int myshort = 1;
-static int myint = 420;
-static long int mylong = 9999;
-static char *mystring = "blah";
+static int cheesymac_defaultbitrate;
+static int cheesymac_defertx;
+static int cheesymac_defertxdone;
+static int cheesymac_deferrx;
+static int cheesymac_maxinflight;
+static int cheesymac_deferallrx;
+static int cheesymac_deferalltxdone;
 
-/* 
- * module_param(foo, int, 0000)
- * The first param is the parameters name
- * The second param is it's data type
- * The final argument is the permissions bits, 
- * for exposing parameters in sysfs (if non-zero) at a later stage.
+module_param(cheesymac_defertx, int, 0644);
+MODULE_PARM_DESC(cheesymac_defertx, "Queue packets and defer transmit to tasklet");
+module_param(cheesymac_defertxdone, int, 0644);
+MODULE_PARM_DESC(cheesymac_defertxdone, "Queue packets that are finished transmitting and defer handling to tasklet");
+module_param(cheesymac_deferrx, int, 0644);
+MODULE_PARM_DESC(cheesymac_deferrx, "Queue received packets and defer handling to tasklet");
+module_param(cheesymac_maxinflight, int, 0644);
+MODULE_PARM_DESC(cheesymac_maxinflight, "Limit the number of packets allowed to be in the pipeline for transmission");
+
+/*
+ * XXX Finish setting default values for module params!
  */
-
-module_param(myshort, short, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-MODULE_PARM_DESC(myshort, "A short integer");
-module_param(myint, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-MODULE_PARM_DESC(myint, "An integer");
-module_param(mylong, long, S_IRUSR);
-MODULE_PARM_DESC(mylong, "A long integer");
-module_param(mystring, charp, 0000);
-MODULE_PARM_DESC(mystring, "A character string");
-#endif
 
 static int __init softmac_cheesymac_init(void)
 {
-#if 0
-	printk(KERN_ALERT "Hello, world 5\n=============\n");
-	printk(KERN_ALERT "myshort is a short integer: %hd\n", myshort);
-	printk(KERN_ALERT "myint is an integer: %d\n", myint);
-	printk(KERN_ALERT "mylong is a long integer: %ld\n", mylong);
-	printk(KERN_ALERT "mystring is a string: %s\n", mystring);
-#endif
-	return 0;
+  return 0;
 }
 
 static void __exit softmac_cheesymac_exit(void)
 {
-	printk(KERN_ALERT "Unloading CheesyMAC\n");
-	/*
-	 * Tell any/all softmac PHY layers that we're leaving
-	 */
-	if (my_softmac_instances) {
-	  CHEESYMAC_INSTANCE* cheesy_instance = 0;
-	  struct list_head* tmp = 0;
-	  struct list_head* p = 0;
-	  
-	  /*
-	   * Walk through all instances, remove from the linked 
-	   * list and then dispose of them cleanly.
-	   */
-	  list_for_each_safe(p,tmp,my_softmac_instances->list) {
-	    cheesy_instance = list_entry(p,CHEESYMAC_INSTANCE,list);
-	    list_del(p);
-	    cu_softmac_detach_mac(cheesy_instance->mynfh,cheesy_instance);
-	    kfree(cheesy_instance);
-	  }
-	}
+  printk(KERN_ALERT "Unloading CheesyMAC\n");
+  /*
+   * Tell any/all softmac PHY layers that we're leaving
+   */
+  if (my_softmac_instances) {
+    CHEESYMAC_INSTANCE* cheesy_instance = 0;
+    struct list_head* tmp = 0;
+    struct list_head* p = 0;
+    
+    /*
+     * Walk through all instances, remove from the linked 
+     * list and then dispose of them cleanly.
+     */
+    list_for_each_safe(p,tmp,my_softmac_instances->list) {
+      cheesy_instance = list_entry(p,CHEESYMAC_INSTANCE,list);
+      list_del(p);
+      cu_softmac_detach_mac(cheesy_instance->mynfh,cheesy_instance);
+      kfree(cheesy_instance);
+    }
+  }
 }
 
 static int cu_softmac_packet_tx_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
@@ -95,12 +94,32 @@ static int cu_softmac_packet_tx_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
   int runagain = 0;
 
   if (myinstance) {
-    cu_softmac_set_default_phy_props(nfh,packet);
-    cu_softmac_set_tx_bitrate(nfh,packet,myinstance->txbitrate);
-    cu_softmac_sendpacket(nfh,256,packet);
+    /*
+     * Check to see if we're supposed to defer transmission to the tasklet
+     */
+    if (myinstance->defertx) {
+      /*
+       * Queue the packet in tx_skbqueue, tell the SoftMAC to run us again
+       */
+      runagain = 1;
+    }
+    else {
+      /*
+       * Send the packet now, don't have the SoftMAC run us again
+       */
+      cu_softmac_set_default_phy_props(nfh,packet);
+      cu_softmac_set_tx_bitrate(nfh,packet,myinstance->txbitrate);
+      cu_softmac_sendpacket(nfh,myinstance->maxinflight,packet);
+      runagain = 0;
+    }
   }
   else {
-    cu_softmac_free_skb(packet);
+    /*
+     * Could not get our instance handle -- free
+     * the packet and get on with life.
+     */
+    printk(KERN_ALERT "CheesyMAC: packet_tx -- no instance handle!\n");
+    cu_softmac_free_skb(nfh,packet);
   }
 
   return runagain;
@@ -114,9 +133,24 @@ static int cu_softmac_packet_tx_done_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
   CHEESYMAC_INSTANCE* myinstance = mydata;
 
   if (myinstance) {
-    if (packet) {
-      cu_softmac_free_skb(nfh,packet);
-      packet = 0;
+    /*
+     * Check to see if we're supposed to defer handling
+     */
+    if (myinstance->defertxdone) {
+      /*
+       * Queue the packet in txdone_skbqueue, schedule the tasklet
+       */
+      runagain = 1;
+    }
+    else {
+      /*
+       * Free the packet immediately, do not run again
+       */
+      if (packet) {
+	cu_softmac_free_skb(nfh,packet);
+	packet = 0;
+      }
+      runagain = 0;
     }
   }
 
@@ -181,7 +215,7 @@ static int cu_softmac_create_instance_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,CU_SO
     }
     clientinfo->client_private = newinst;
     newinst->mynfh = nfh;
-    newinst->txbitrate = 2;
+    newinst->txbitrate = cheesymac_defaultbitrate;
     set_cheesymac_functions(clientinfo);
   }
   else {
@@ -215,3 +249,31 @@ module_init(softmac_cheesymac_init);
 module_exit(softmac_cheesymac_exit);
 
 EXPORT_SYMBOL(cu_softmac_create_instance_cheesymac);
+
+
+#if 0
+/*
+ * XXX keeping these around as examples...
+ */
+static short int myshort = 1;
+static int myint = 420;
+static long int mylong = 9999;
+static char *mystring = "blah";
+
+/* 
+ * module_param(foo, int, 0000)
+ * The first param is the parameters name
+ * The second param is it's data type
+ * The final argument is the permissions bits, 
+ * for exposing parameters in sysfs (if non-zero) at a later stage.
+ */
+
+module_param(myshort, short, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(myshort, "A short integer");
+module_param(myint, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+MODULE_PARM_DESC(myint, "An integer");
+module_param(mylong, long, S_IRUSR);
+MODULE_PARM_DESC(mylong, "A long integer");
+module_param(mystring, charp, 0000);
+MODULE_PARM_DESC(mystring, "A character string");
+#endif
