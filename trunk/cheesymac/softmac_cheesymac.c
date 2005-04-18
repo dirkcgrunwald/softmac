@@ -14,6 +14,21 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Michael Neufeld");
 
+
+/*
+ * By default we don't defer, don't throttle packets in flight.
+ * Can override these upon module load.
+ */
+enum {
+  CHEESYMAC_DEFAULT_DEFERTX = 0,
+  CHEESYMAC_DEFAULT_DEFERTXDONE = 0,
+  CHEESYMAC_DEFAULT_DEFERRX = 0,
+  CHEESYMAC_DEFAULT_MAXINFLIGHT = 256,
+  CHEESYMAC_DEFAULT_DEFERALLRX = 0,
+  CHEESYMAC_DEFAULT_DEFERALLTXDONE = 0,
+}
+
+
 typedef struct {
   struct list_head list;
   CU_SOFTMAC_NETIF_HANDLE mynfh;
@@ -33,17 +48,38 @@ typedef struct {
   struct sk_buff_head tx_skbqueue;
   struct sk_buff_head txdone_skbqueue;
   struct sk_buff_head rx_skbqueue;
+
+  /*
+   * We keep a unique ID for each instance we create in order to
+   * do things like create separate proc directories for the settings
+   * on each one.
+   */
+  int instanceid;
 } CHEESYMAC_INSTANCE;
 
 static CHEESYMAC_INSTANCE* my_softmac_instances = 0;
 
-static int cheesymac_defaultbitrate;
-static int cheesymac_defertx;
-static int cheesymac_defertxdone;
-static int cheesymac_deferrx;
-static int cheesymac_maxinflight;
-static int cheesymac_deferallrx;
-static int cheesymac_deferalltxdone;
+/*
+ * Default to 1 Mb/s
+ */
+static int cheesymac_defaultbitrate = 2;
+
+static int cheesymac_defertx = CHEESYMAC_DEFAULT_DEFERTX;
+static int cheesymac_defertxdone = CHEESYMAC_DEFAULT_DEFERTXDONE;
+static int cheesymac_deferrx = CHEESYMAC_DEFAULT_DEFERRX;
+static int cheesymac_maxinflight = CHEESYMAC_DEFAULT_MAXINFLIGHT;
+static int cheesymac_deferallrx = CHEESYMAC_DEFAULT_DEFERALLRX;
+static int cheesymac_deferalltxdone = CHEESYMAC_DEFAULT_DEFERALLTXDONE;
+
+/*
+ * Default root directory for cheesymac procfs entries
+ */
+static char *cheesymac_procfsroot = "softmac/cheesymac";
+
+/*
+ * First instance ID to use is 1
+ */
+static int cheesymac_next_instanceid = 1;
 
 module_param(cheesymac_defertx, int, 0644);
 MODULE_PARM_DESC(cheesymac_defertx, "Queue packets and defer transmit to tasklet");
@@ -53,6 +89,9 @@ module_param(cheesymac_deferrx, int, 0644);
 MODULE_PARM_DESC(cheesymac_deferrx, "Queue received packets and defer handling to tasklet");
 module_param(cheesymac_maxinflight, int, 0644);
 MODULE_PARM_DESC(cheesymac_maxinflight, "Limit the number of packets allowed to be in the pipeline for transmission");
+
+module_param(cheesymac_procfsroot, charp, 0644);
+MODULE_PARM_DESC(cheesymac_procfsroot, "Subdirectory in procfs to use for cheesymac parameters/statistics");
 
 /*
  * XXX Finish setting default values for module params!
