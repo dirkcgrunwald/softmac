@@ -55,10 +55,27 @@ typedef struct {
    * on each one.
    */
   int instanceid;
+
+  /*
+   * Keep a handle to the root procfs directory for this instance
+   */
+  struct proc_dir_entry* my_procfs_root;
+ 
+  /*
+   * XXX should add a mutex for creation/deletion operations...
+   */
 } CHEESYMAC_INSTANCE;
 
+/*
+ * Keep a reference to the head of our linked list of instances
+ */
 static CHEESYMAC_INSTANCE* my_softmac_instances = 0;
 
+/*
+ * First instance ID to use is 1
+ * XXX initialize this
+ */
+static atomic_t cheesymac_next_instanceid;
 /*
  * Default to 1 Mb/s
  */
@@ -75,11 +92,6 @@ static int cheesymac_deferalltxdone = CHEESYMAC_DEFAULT_DEFERALLTXDONE;
  * Default root directory for cheesymac procfs entries
  */
 static char *cheesymac_procfsroot = "softmac/cheesymac";
-
-/*
- * First instance ID to use is 1
- */
-static int cheesymac_next_instanceid = 1;
 
 module_param(cheesymac_defertx, int, 0644);
 MODULE_PARM_DESC(cheesymac_defertx, "Queue packets and defer transmit to tasklet");
@@ -99,6 +111,7 @@ MODULE_PARM_DESC(cheesymac_procfsroot, "Subdirectory in procfs to use for cheesy
 
 static int __init softmac_cheesymac_init(void)
 {
+  printk(KERN_ALERT "Loading CheesyMAC\n");
   return 0;
 }
 
@@ -121,9 +134,7 @@ static void __exit softmac_cheesymac_exit(void)
       cheesy_instance = list_entry(p,CHEESYMAC_INSTANCE,list);
       list_del(p);
       cu_softmac_detach_mac(cheesy_instance->mynfh,cheesy_instance);
-      /*
-       * XXX flush packet queues
-       */
+
       kfree(cheesy_instance);
     }
   }
@@ -280,14 +291,9 @@ static int cu_softmac_create_instance_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,CU_SO
     clientinfo->client_private = newinst;
     
     /*
-     * Initialize our instance data with default values
+     * Fire up the instance...
      */
-    init_cheesymac_data(newinst);
-
-    /*
-     * Setup our function table
-     */
-    set_cheesymac_functions(clientinfo);
+    cheesymac_setup_instance(nfh,newinst);
   }
   else {
     result = -1;
@@ -296,19 +302,17 @@ static int cu_softmac_create_instance_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,CU_SO
   return result;
 }
 
-static void set_cheesymac_functions(CU_SOFTMAC_CLIENT_INFO* clientinfo) {
+static int cheesymac_setup_instance(CU_SOFTMAC_NETIFHANDLE nfh,
+				    CHEESYMAC_INSTANCE* inst) {
+  int result = 0;
   /*
-   * Load up the function table so that the SoftMAC layer can
-   * communicate with us.
+   * Set up a CheesyMAC instance
    */
-  clientinfo->cu_softmac_packet_tx = cu_softmac_packet_tx_cheesymac;
-  clientinfo->cu_softmac_packet_tx_done = cu_softmac_packet_tx_done_cheesymac;
-  clientinfo->cu_softmac_packet_rx = cu_softmac_packet_rx_cheesymac;
-  clientinfo->cu_softmac_work = cu_softmac_work_cheesymac;
-  clientinfo->cu_softmac_detach = cu_softmac_detach_cheesymac;
-}
+  /*
+   * XXX
+   * do a mutex here...
+   */
 
-static void init_cheesymac_data(CHEESYMAC_INSTANCE* newinst) {
   /*
    * Set our instance default parameter values
    */
@@ -324,6 +328,54 @@ static void init_cheesymac_data(CHEESYMAC_INSTANCE* newinst) {
   skb_queue_head_init(&(newinst->tx_skbqueue));
   skb_queue_head_init(&(newinst->txdone_skbqueue));
   skb_queue_head_init(&(newinst->rx_skbqueue));
+
+  /*
+   * Load up the function table so that the SoftMAC layer can
+   * communicate with us.
+   */
+  clientinfo->cu_softmac_packet_tx = cu_softmac_packet_tx_cheesymac;
+  clientinfo->cu_softmac_packet_tx_done = cu_softmac_packet_tx_done_cheesymac;
+  clientinfo->cu_softmac_packet_rx = cu_softmac_packet_rx_cheesymac;
+  clientinfo->cu_softmac_work = cu_softmac_work_cheesymac;
+  clientinfo->cu_softmac_detach = cu_softmac_detach_cheesymac;
+
+  /*
+   * XXX
+   * Create procfs entries
+   */
+
+  return result;
+}
+
+static int cheesymac_cleanup_instance(CU_SOFTMAC_NETIFHANDLE nfh,
+				      CHEESYMAC_INSTANCE* inst) {
+  int result = 0;
+  struct sk_buff* skb = 0;
+
+  /*
+   * Clean up after a CheesyMAC instance
+   */
+
+
+  /*
+   * XXX
+   * remove procfs entries
+   */
+
+  /*
+   * Drain queues...
+   */
+  while (skb = skb_dequeue(&(inst->tx_skbqueue))) {
+    cu_softmac_free_skb(nfh,skb);
+  }
+  while (skb = skb_dequeue(&(inst->txdone_skbqueue))) {
+    cu_softmac_free_skb(nfh,skb);
+  }
+  while (skb = skb_dequeue(&(inst->rx_skbqueue))) {
+    cu_softmac_free_skb(nfh,skb);
+  }
+
+  return result;
 }
 
 static int cu_softmac_set_netifhandle_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,void* mypriv) {
