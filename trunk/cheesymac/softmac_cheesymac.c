@@ -62,9 +62,90 @@ typedef struct {
   struct proc_dir_entry* my_procfs_root;
  
   /*
-   * XXX should add a mutex for creation/deletion operations...
+   * XXX spinlocking?
    */
+  spinlock_t instance_busy;
 } CHEESYMAC_INSTANCE;
+
+/*
+ * Declarations of functions used internally and/or exported
+ */
+
+/*
+ * Create a CheesyMAC instance -- exported for multiple MAC layer support
+ * (MixMAC, FlexiMAC, MACsalot, MACsploitation)????
+ */
+static int
+cu_softmac_create_instance_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
+				     CU_SOFTMAC_CLIENT_INFO* clientinfo);
+/*
+ * Set the SoftMAC PHY handle to use in an instance -- exported for multiple
+ * MAC layer support
+ */
+static int
+cu_softmac_set_netifhandle_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,void* mypriv);
+
+/*
+ * Notify the MAC layer that it is being removed from the PHY -- exported
+ * via pointer as "cu_softmac_detach" to the SoftMAC PHY
+ */
+static int
+cu_softmac_detach_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,void* mydata,int intop);
+
+/*
+ * Notify the MAC layer that it is time to do some work -- exported
+ * via pointer as "cu_softmac_work" to the SoftMAC PHY
+ */
+static int
+cu_softmac_work_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
+			  void* mydata, int intop);
+
+/*
+ * Notify the MAC layer that a packet has been received -- exported
+ * via pointer as "cu_softmac_packet_rx" to the SoftMAC PHY
+ */
+static int
+cu_softmac_packet_rx_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
+			       void* mydata,
+			       struct sk_buff* packet,
+			       int intop);
+
+/*
+ * Notify the MAC layer that a packet transmit has completed -- exported
+ * via pointer as "cu_softmac_packet_tx_done" to the SoftMAC PHY
+ */
+static int
+cu_softmac_packet_tx_done_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
+				    void* mydata,
+				    struct sk_buff* packet,
+				    int intop);
+
+/*
+ * Notify the MAC layer that an ethernet-encapsulated packet
+ * has been received from up the protocol stack -- exported
+ * via pointer as "cu_softmac_packet_tx" to the SoftMAC PHY
+ */
+static int
+cu_softmac_packet_tx_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
+			       void* mydata,
+			       struct sk_buff* packet, int intop);
+
+
+/*
+ * Do cleanup when shutting down a CheesyMAC instance -- internal utility
+ */
+static int
+cheesymac_cleanup_instance(CU_SOFTMAC_NETIFHANDLE nfh,
+			   CHEESYMAC_INSTANCE* inst);
+
+/*
+ * Do initialization when creating a CheesyMAC instance -- internal utility
+ */
+static int
+cheesymac_setup_instance(CU_SOFTMAC_NETIFHANDLE nfh, CHEESYMAC_INSTANCE* inst,
+			 CU_SOFTMAC_CLIENT_INFO* clientinfo);
+
+
 
 /*
  * Keep a reference to the head of our linked list of instances
@@ -89,6 +170,11 @@ static int cheesymac_deferallrx = CHEESYMAC_DEFAULT_DEFERALLRX;
 static int cheesymac_deferalltxdone = CHEESYMAC_DEFAULT_DEFERALLTXDONE;
 
 /*
+ * Optionally attach the cheesymac to the softmac upon loading
+ */
+static int cheesymac_attach_on_load = 0;
+
+/*
  * Default root directory for cheesymac procfs entries
  */
 static char *cheesymac_procfsroot = "softmac/cheesymac";
@@ -105,6 +191,9 @@ MODULE_PARM_DESC(cheesymac_maxinflight, "Limit the number of packets allowed to 
 module_param(cheesymac_procfsroot, charp, 0644);
 MODULE_PARM_DESC(cheesymac_procfsroot, "Subdirectory in procfs to use for cheesymac parameters/statistics");
 
+module_param(cheesymac_attach_on_load, int, S_IRUSR | S_IRGRP | S_IROTH);
+MODULE_PARM_DESC(cheesymac_attach_on_load,"Set to non-zero to have the cheesymac attach itself to the softmac upon loading");
+
 /*
  * XXX Finish setting default values for module params!
  */
@@ -112,6 +201,15 @@ MODULE_PARM_DESC(cheesymac_procfsroot, "Subdirectory in procfs to use for cheesy
 static int __init softmac_cheesymac_init(void)
 {
   printk(KERN_ALERT "Loading CheesyMAC\n");
+  if (cheesymac_attach_on_load) {
+    CU_SOFTMAC_CLIENT_INFO newclientinfo;
+    printk(KERN_ALERT "Creating and attaching CheesyMAC to SoftMAC\n");
+    
+    memset(&newclientinfo,0,sizeof(CU_SOFTMAC_CLIENT_INFO));
+    //int cu_softmac_create_instance_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,CU_SOFTMAC_CLIENT_INFO* clientinfo) {
+    //CU_SOFTMAC_NETIFHANDLE cu_softmac_attach(struct net_device* dev,CU_SOFTMAC_CLIENT_INFO* cinfo);
+    //int cu_softmac_set_netifhandle_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,void* mypriv)
+  }
   return 0;
 }
 
@@ -134,7 +232,7 @@ static void __exit softmac_cheesymac_exit(void)
       cheesy_instance = list_entry(p,CHEESYMAC_INSTANCE,list);
       list_del(p);
       cu_softmac_detach_mac(cheesy_instance->mynfh,cheesy_instance);
-
+      cheesymac_cleanup_instance(cheesy_instance->mynfh,cheesy_instance);
       kfree(cheesy_instance);
     }
   }
@@ -260,6 +358,7 @@ static int cu_softmac_detach_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
       }
     }
     list_del(myinstance->list);
+    cheesymac_cleanup_instance(nfh,myinstance);
     kfree(myinstance);
     myinstance = 0;
   }
@@ -293,7 +392,7 @@ static int cu_softmac_create_instance_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,CU_SO
     /*
      * Fire up the instance...
      */
-    cheesymac_setup_instance(nfh,newinst);
+    cheesymac_setup_instance(nfh,newinst,clientinfo);
   }
   else {
     result = -1;
@@ -303,14 +402,14 @@ static int cu_softmac_create_instance_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,CU_SO
 }
 
 static int cheesymac_setup_instance(CU_SOFTMAC_NETIFHANDLE nfh,
-				    CHEESYMAC_INSTANCE* inst) {
+				    CHEESYMAC_INSTANCE* inst,
+				    CU_SOFTMAC_CLIENT_INFO* clientinfo) {
   int result = 0;
   /*
    * Set up a CheesyMAC instance
    */
   /*
-   * XXX
-   * do a mutex here...
+   * XXX locking?
    */
 
   /*
