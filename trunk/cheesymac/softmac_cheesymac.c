@@ -31,7 +31,7 @@ enum {
 
 typedef struct {
   struct list_head list;
-  CU_SOFTMAC_NETIF_HANDLE mynfh;
+  CU_SOFTMAC_PHYLAYER_INFO myphy;
   unsigned char txbitrate;
   /*
    * XXX expose the "defer" properties...
@@ -83,7 +83,7 @@ cu_softmac_create_instance_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,
  * MAC layer support
  */
 static int
-cu_softmac_set_netifhandle_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,void* mypriv);
+cu_softmac_set_phyinfo_cheesymac(void* mypriv,CU_SOFTMAC_PHYLAYER_INFO* pinfo);
 
 /*
  * Notify the MAC layer that it is being removed from the PHY -- exported
@@ -179,6 +179,11 @@ static int cheesymac_attach_on_load = 0;
  */
 static char *cheesymac_procfsroot = "softmac/cheesymac";
 
+/*
+ * Default network interface to use as a softmac phy layer
+ */
+static char* cheesymac_defaultphy = "ath0";
+
 module_param(cheesymac_defertx, int, 0644);
 MODULE_PARM_DESC(cheesymac_defertx, "Queue packets and defer transmit to tasklet");
 module_param(cheesymac_defertxdone, int, 0644);
@@ -190,6 +195,9 @@ MODULE_PARM_DESC(cheesymac_maxinflight, "Limit the number of packets allowed to 
 
 module_param(cheesymac_procfsroot, charp, 0644);
 MODULE_PARM_DESC(cheesymac_procfsroot, "Subdirectory in procfs to use for cheesymac parameters/statistics");
+
+module_param(cheesymac_defaultphy, charp, 0644);
+MODULE_PARM_DESC(cheesymac_defaultphy, "Network interface to use for SoftMAC PHY layer");
 
 module_param(cheesymac_attach_on_load, int, S_IRUSR | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(cheesymac_attach_on_load,"Set to non-zero to have the cheesymac attach itself to the softmac upon loading");
@@ -203,13 +211,37 @@ static int __init softmac_cheesymac_init(void)
   printk(KERN_ALERT "Loading CheesyMAC\n");
   if (cheesymac_attach_on_load) {
     CU_SOFTMAC_CLIENT_INFO newclientinfo;
-    printk(KERN_ALERT "Creating and attaching CheesyMAC to SoftMAC\n");
-    
-    memset(&newclientinfo,0,sizeof(CU_SOFTMAC_CLIENT_INFO));
-    //int cu_softmac_create_instance_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,CU_SOFTMAC_CLIENT_INFO* clientinfo) {
-    //CU_SOFTMAC_NETIFHANDLE cu_softmac_attach(struct net_device* dev,CU_SOFTMAC_CLIENT_INFO* cinfo);
-    //int cu_softmac_set_netifhandle_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,void* mypriv)
+    CU_SOFTMAC_PHYLAYER_INFO athphyinfo;
+    struct net_device* mydev = 0;
+    printk(KERN_ALERT "Creating and attaching CheesyMAC to Atheros SoftMAC on %s\n",cheesymac_defaultphy);
+    mydev = dev_get_by_name(cheesymac_defaultphy);
+    /*
+     * Got the device handle, now attempt to get phy info off of it
+     */
+    if (mydev) {
+      cu_softmac_ath_get_phyinfo(mydev,&athphyinfo);
+      memset(&newclientinfo,0,sizeof(CU_SOFTMAC_CLIENT_INFO));
+      /*
+       * Create an instance of CheesyMAC that we will then attach
+       * to the atheros phy layer using the attach function inside
+       * of the atheros phy info structure we got earlier.
+       */
+      if (cu_softmac_create_instance_cheesymac(0,newclientinfo)) {
+	
+	athphyinfo->cu_softmac_attach_mac(athphyinfo->phyhandle,&newclientinfo);
+	
+	
+	//int cu_softmac_set_netifhandle_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,void* mypriv);
+      }
+      else {
+	printk(KERN_ALERT "CheesyMAC: Unable to create instance of self!\n",cheesymac_defaultphy);
+      }
+    }
+    else {
+      printk(KERN_ALERT "CheesyMAC: Unable to find net interface %s\n",cheesymac_defaultphy);
+    }
   }
+
   return 0;
 }
 
@@ -477,11 +509,11 @@ static int cheesymac_cleanup_instance(CU_SOFTMAC_NETIFHANDLE nfh,
   return result;
 }
 
-static int cu_softmac_set_netifhandle_cheesymac(CU_SOFTMAC_NETIFHANDLE nfh,void* mypriv) {
+static int cu_softmac_set_phyinfo_cheesymac(void* mypriv,CU_SOFTMAC_PHYLAYER_INFO* pinfo) {
   int result = 0;
   if (mypriv) {
     CHEESYMAC_INSTANCE* myinst = mypriv;
-    myinst->mynfh= nfh;
+    memcpy(&(myinst->myphy),pinfo,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
     result = 0;
   }
   else {
@@ -494,7 +526,7 @@ module_init(softmac_cheesymac_init);
 module_exit(softmac_cheesymac_exit);
 
 EXPORT_SYMBOL(cu_softmac_create_instance_cheesymac);
-EXPORT_SYMBOL(cu_softmac_set_netifhandle_cheesymac);
+EXPORT_SYMBOL(cu_softmac_set_phyinfo_cheesymac);
 
 #if 0
 /*
