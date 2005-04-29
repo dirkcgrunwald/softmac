@@ -13,82 +13,91 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Michael Neufeld");
 
-
-typedef struct {
-  struct list_head list;
-  CU_SOFTMAC_NETIF_HANDLE mynfh;
-
-  /*
-   * The cheesymac uses Linux sk_buff queues when it needs
-   * to keep packets around for deferred handling.
-   */
-  struct sk_buff_head tx_skbqueue;
-  struct sk_buff_head txdone_skbqueue;
-  struct sk_buff_head rx_skbqueue;
-
-  /*
-   * We keep a unique ID for each instance we create in order to
-   * do things like create separate proc directories for the settings
-   * on each one.
-   */
-  int instanceid;
-
-  /*
-   * Keep a handle to the root procfs directory for this instance
-   */
-  struct proc_dir_entry* my_procfs_root;
- 
-  /*
-   * XXX spinlocking?
-   */
-  spinlock_t instance_busy;
-} SOFTMAC_MACTIME_INSTANCE;
-
 /*
  * The MACTime module presents sendpacket functions to be used by
  * the client MAC layer.
  */
 
-/*
- * Send a packet, only permitting max_packets_inflight to be pending
- */
-int
-cu_softmac_sendpacket_mactime(CU_SOFTMAC_NETIFHANDLE nfh,
-			      int max_packets_inflight,struct sk_buff* skb) {
+// >0 -> time until slot arrives
+// <=0 -> -(time left in slot)
+static int32_t
+cu_softmac_mactime_tdma_slotstatus(CU_SOFTMAC_MACTIME_STATE* mts,
+				   u_int32_t* pcurslot) {
+  int32_t result = 0;
+  if (mts && mts->phyinfo && mts->phyinfo->cu_softmac_get_time) {
+    u_int32_t now = mts->phyinfo->cu_softmac_get_time(mts->phyinfo->phyhandle);
+    u_int32_t slotcount = (now/sc->mts->tdma_slotlen);
+    u_int32_t curslot = mts->tdma_slotcount;
+    u_int64_t curslotstart = slotcount * mts->tdma_slotlen;
+    u_int64_t curslotend = curslotstart + mts->tdma_slotlen;
+    int32_t slotdistance = mts->tdma_myslot - curslot;
+
+    if (pcurslot) *pcurslot = slotcount;
+    while (0 > slotdistance) {
+      slotdistance += mts->tdma_slotcount;
+    }
+
+    if (0 == slotdistance) {
+      // We're in our slot -- return negative the distance to the end
+      // of the slot.
+      result = -(curslotend - now);
+    }
+    else {
+      // We're not in our slot -- return the distance to the end of the 
+      // current slot + the time in the remaining slots
+      result = (curslotend - now) + (slotdistance-1)*mts->tdma_slotlen; 
+    }
+  }
+  else {
+    printk(KERN_ALERT "MACTime tdma_slotstatus: null data\n");
+  }
+
+  return result;
 }
 
-/*
- * Send a packet, only permitting max_packets_inflight to be pending.
- * Do NOT free the sk_buff upon failure. This allows callers to do things
- * like requeue a packet if they care to make another attempt to send the
- * packet that failed to go out.
- */
-int cu_softmac_sendpacket_keepskbonfail_mactime(CU_SOFTMAC_NETIFHANDLE nfh,
-						int max_packets_inflight,
-						struct sk_buff* skb) {
-}
-
-/*
- * Notify the MAC layer that a packet transmit has completed -- exported
- * via pointer as "cu_softmac_packet_tx_done" to the SoftMAC PHY.
- * The MACTime module interposes itself between the PHY and "client"
- * MAC layer so that it can keep precise track of packets and timing.
- */
-static int
-cu_softmac_packet_tx_done_mactime(CU_SOFTMAC_NETIFHANDLE nfh,
-				  void* mydata,
-				  struct sk_buff* packet,
-				  int intop) {
-}
-
-/*
- * The MACTime module interposes itself between the PHY and "client"
- * MAC layer "work" callback so that it can schedule itself to 
- * run as required to try to meet desired packet timing constraints.
- */
-static int
-cu_softmac_work_mactime(CU_SOFTMAC_NETIFHANDLE nfh,void* mydata, int intop) {
+static int32_t
+cu_softmac_mactime_tdma_timetonextslot(CU_SOFTMAC_MACTIME_STATE* mts) {
+  int32_t result = -1;
+  if (mts && mts->phyinfo && mts->phyinfo->cu_softmac_get_time) {
+    u_int32_t now = mts->phyinfo->cu_softmac_get_time(mts->phyinfo->phyhandle);
+    u_int32_t slotcount = (now/mts->tdma_slotlen);
+    u_int32_t curslot = slotcount % mts->tdma_slotcount;
+    u_int64_t curslotstart = curslot * mts->tdma_slotlen;
+    u_int64_t curslotend = curslotstart + mts->tdma_slotlen;
+    int32_t slotdistance = mts->tdma_myslot - curslot;
   
+    while (0 > slotdistance) {
+      slotdistance += mts->tdma_slotcount;
+    }
+
+    // Return the distance to the end of the current slot + 
+    // the time in the remaining slots
+    result = (curslotend - now) + (slotdistance-1)*mts->tdma_slotlen; 
+  }
+  else {
+    printk(KERN_ALERT "MACTime tdma_timetonextslot: null data\n");
+  }
+    
+  return result;
+}
+
+/*
+ * How long until we can transmit the packet? Return value >=0 means
+ * time until we can transmit, <0 means that the packet is too big
+ * to fit in the timeslot, i.e. we'll never be able to send it.
+ */
+static int32_t
+cu_softmac_mactime_tdma_xmitwhen(CU_SOFTMAC_MACTIME_STATE* mts,
+				 struct sk_buff* packet) {
+  int32_t result = 0;
+  if (mts && mts->phyinfo &&
+      mts->phyinfo->cu_softmac_get_duration &&
+      mts->phyinfo->cu_softmac_get_txlatency) {
+    int32_t slotstat = cu_softmac_mactime_tdma_slotstatus(mts,0);
+    int32_t txlat = mts->phyinfo->cu_softmac_get_txlatency();
+    int32_t pktlen = mts->phyinfo->cu_softmac_get_duration();
+  }
+  return result;
 }
 
 static int __init softmac_mactime_init(void)
@@ -102,118 +111,8 @@ static void __exit softmac_mactime_exit(void)
   printk(KERN_ALERT "Unloading SoftMAC MACTime module\n");
 }
 
-static int cu_softmac_create_instance_mactime(CU_SOFTMAC_NETIFHANDLE nfh,CU_SOFTMAC_CLIENT_INFO* clientinfo) {
-  int result = 0;
-  SOFTMAC_MACTIME_INSTANCE* newinst = 0;
-
-  /*
-   * Create a new instance, make it part of a kernel linked list
-   */
-  newinst = kmalloc(sizeof(SOFTMAC_MACTIME_INSTANCE),GFP_ATOMIC);
-  if (newinst) {
-    memset(newinst,0,sizeof(SOFTMAC_MACTIME_INSTANCE));
-    INIT_LIST_HEAD(&newinst->list);
-
-    if (!my_softmac_instances) {
-      my_softmac_instances = newinst;
-    }
-    else {
-      list_add_tail(&newinst->list,&my_softmac_instances->list);
-    }
-    /*
-     * Our client private info is a pointer to a cheesymac instance
-     */
-    newinst->mynfh = nfh;
-    clientinfo->client_private = newinst;
-    
-    /*
-     * Fire up the instance...
-     */
-    cheesymac_setup_instance(nfh,newinst,clientinfo);
-  }
-  else {
-    result = -1;
-  }
-
-  return result;
-}
-
-static int cheesymac_setup_instance(CU_SOFTMAC_NETIFHANDLE nfh,
-				    SOFTMAC_MACTIME_INSTANCE* inst,
-				    CU_SOFTMAC_CLIENT_INFO* clientinfo) {
-  int result = 0;
-  /*
-   * Set up a MACTime instance
-   */
-  /*
-   * XXX locking?
-   */
-
-  /*
-   * Set our instance default parameter values
-   */
-  newinst->txbitrate = cheesymac_defaultbitrate;
-  newinst->defertx = cheesymac_defertx;
-  newinst->defertxdone = cheesymac_defertxdone;
-  newinst->deferrx = cheesymac_deferrx;
-  newinst->maxinflight = cheesymac_maxinflight;
-
-  /*
-   * Initialize our packet queues
-   */
-  skb_queue_head_init(&(newinst->tx_skbqueue));
-  skb_queue_head_init(&(newinst->txdone_skbqueue));
-  skb_queue_head_init(&(newinst->rx_skbqueue));
-
-  /*
-   * Load up the function table so that the SoftMAC layer can
-   * communicate with us.
-   */
-  clientinfo->cu_softmac_packet_tx = cu_softmac_packet_tx_cheesymac;
-  clientinfo->cu_softmac_packet_tx_done = cu_softmac_packet_tx_done_cheesymac;
-  clientinfo->cu_softmac_packet_rx = cu_softmac_packet_rx_cheesymac;
-  clientinfo->cu_softmac_work = cu_softmac_work_cheesymac;
-  clientinfo->cu_softmac_detach = cu_softmac_detach_cheesymac;
-
-  /*
-   * XXX
-   * Create procfs entries
-   */
-
-  return result;
-}
-
-static int cheesymac_cleanup_instance(CU_SOFTMAC_NETIFHANDLE nfh,
-				      SOFTMAC_MACTIME_INSTANCE* inst) {
-  int result = 0;
-  struct sk_buff* skb = 0;
-
-  /*
-   * Clean up after a MACTime instance
-   */
-
-
-  /*
-   * XXX
-   * remove procfs entries
-   */
-
-  /*
-   * Drain queues...
-   */
-  while (skb = skb_dequeue(&(inst->tx_skbqueue))) {
-    cu_softmac_free_skb(nfh,skb);
-  }
-  while (skb = skb_dequeue(&(inst->txdone_skbqueue))) {
-    cu_softmac_free_skb(nfh,skb);
-  }
-  while (skb = skb_dequeue(&(inst->rx_skbqueue))) {
-    cu_softmac_free_skb(nfh,skb);
-  }
-
-  return result;
-}
-
+EXPORT_SYMBOL(cu_softmac_mactime_tdma_slotstatus);
+EXPORT_SYMBOL(cu_softmac_mactime_tdma_timetonextslot);
 
 module_init(softmac_mactime_init);
 module_exit(softmac_mactime_exit);
