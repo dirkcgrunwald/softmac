@@ -23,6 +23,9 @@
  *                                                                           * 
  ****************************************************************************/
 
+#ifndef _CU_SOFTMAC_API_H
+#define _CU_SOFTMAC_API_H
+
 /*
 **
 **
@@ -33,9 +36,20 @@
 
 
 /*
+ * Handle used by the specific PHY layer for its internal data
+ */
+typedef void* CU_SOFTMAC_PHY_HANDLE;
+
+/*
+ * Forward declaration of the struct containing MAC layer information
+ */
+struct CU_SOFTMAC_MACLAYER_INFO_t;
+
+
+/*
  * Attach a MAC implementation to the softmac layer
  */
-typedef void (*CU_SOFTMAC_PHY_ATTACH_MAC_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* cinfo);
+typedef void (*CU_SOFTMAC_PHY_ATTACH_MAC_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
 
 /*
  * Tell the softmac PHY that we are leaving the building. The semantics
@@ -104,7 +118,7 @@ typedef u_int32_t (*CU_SOFTMAC_PHY_GET_DURATION_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,
  * to send a packet and the time it hits the air.
  */
 typedef u_int32_t (*CU_SOFTMAC_PHY_GET_TXLATENCY_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh);
-typedef void* CU_SOFTMAC_PHY_HANDLE;
+
 /*
  * XXX add version id to this struct?
  */
@@ -126,7 +140,7 @@ typedef struct {
   CU_SOFTMAC_PHY_GET_DURATION_FUNC cu_softmac_get_duration;
   CU_SOFTMAC_PHY_GET_TXLATENCY_FUNC cu_softmac_get_txlatency;
 
-  CU_SOFTMAC_PHYHANDLE phyhandle;
+  CU_SOFTMAC_PHY_HANDLE phyhandle;
 } CU_SOFTMAC_PHYLAYER_INFO;
 
 
@@ -139,7 +153,7 @@ typedef struct {
 **
  */
 
-typedef int (*CU_SOFTMAC_NOTIFY_PACKET_FUNC)(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop);
+typedef int (*CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC)(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop);
 typedef int (*CU_SOFTMAC_MAC_NOTIFY_FUNC)(CU_SOFTMAC_PHY_HANDLE,void*,int intop);
 typedef int (*CU_SOFTMAC_MAC_PHY_FUNC)(void*,CU_SOFTMAC_PHYLAYER_INFO*);
 typedef int (*CU_SOFTMAC_MAC_SIMPLE_FUNC)(void*);
@@ -173,14 +187,14 @@ enum {
 /*
  * XXX add version id to this struct?
  */
-typedef struct {
+typedef struct CU_SOFTMAC_MACLAYER_INFO_t {
   CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC cu_softmac_mac_packet_tx;
   CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC cu_softmac_mac_packet_tx_done;
   CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC cu_softmac_mac_packet_rx;
   CU_SOFTMAC_MAC_NOTIFY_FUNC cu_softmac_mac_work;
   CU_SOFTMAC_MAC_NOTIFY_FUNC cu_softmac_mac_detach;
   CU_SOFTMAC_MAC_PHY_FUNC cu_softmac_mac_attach_to_phy;
-  CU_SOFTMAC_MAC_FUNC cu_softmac_mac_detach_from_phy;
+  CU_SOFTMAC_MAC_SIMPLE_FUNC cu_softmac_mac_detach_from_phy;
   u_int32_t options;
   void* mac_private;
 } CU_SOFTMAC_MACLAYER_INFO;
@@ -206,3 +220,4 @@ typedef struct {
  * of naming scheme by a composite MAC object.
  */
 
+#endif
