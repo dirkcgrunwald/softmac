@@ -109,14 +109,6 @@ typedef void* CU_SOFTMAC_PHY_HANDLE;
  * XXX add version id to this struct?
  */
 typedef struct {
-  /*
-   * XXX
-   * Add function pointers for generic functions listed here
-   * and change names within if_ath.c to match, also
-   * add function to fill in the appropriate function pointer
-   * table. This will make life easier when doing multiple
-   * MAC layers on top of a single PHY.
-   */
   CU_SOFTMAC_PHY_ATTACH_MAC_FUNC cu_softmac_attach_mac;
   CU_SOFTMAC_PHY_DETACH_MAC_FUNC cu_softmac_detach_mac;
   CU_SOFTMAC_PHY_GET_TIME_FUNC cu_softmac_get_time;
@@ -150,6 +142,34 @@ typedef struct {
 typedef int (*CU_SOFTMAC_NOTIFY_PACKET_FUNC)(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop);
 typedef int (*CU_SOFTMAC_MAC_NOTIFY_FUNC)(CU_SOFTMAC_PHY_HANDLE,void*,int intop);
 typedef int (*CU_SOFTMAC_MAC_PHY_FUNC)(void*,CU_SOFTMAC_PHYLAYER_INFO*);
+typedef int (*CU_SOFTMAC_MAC_SIMPLE_FUNC)(void*);
+typedef int (*CU_SOFTMAC_MAC_INT_FUNC)(void*,int);
+typedef int (*CU_SOFTMAC_MAC_PHY_INT_FUNC)(void*,CU_SOFTMAC_PHYLAYER_INFO*,int);
+
+/*
+ * Status codes returned by the MAC layer when receiving
+ * a notification from the SoftMAC PHY
+ */
+enum {
+  /*
+   * Finished running, all is well
+   */
+  CU_SOFTMAC_MAC_NOTIFY_OK = 0,
+  /*
+   * Finished for now, but schedule task to run again ASAP
+   */
+  CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN = 1,
+  /*
+   * The MAC layer is busy and cannot take delivery of a packet.
+   * The PHY layer should free the packet and continue.
+   */
+  CU_SOFTMAC_MAC_NOTIFY_BUSY = 2,
+  /*
+   * The MAC layer is hosed. Free the packet and continue.
+   */
+  CU_SOFTMAC_MAC_NOTIFY_HOSED = 3,
+};
+
 /*
  * XXX add version id to this struct?
  */
@@ -159,9 +179,10 @@ typedef struct {
   CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC cu_softmac_mac_packet_rx;
   CU_SOFTMAC_MAC_NOTIFY_FUNC cu_softmac_mac_work;
   CU_SOFTMAC_MAC_NOTIFY_FUNC cu_softmac_mac_detach;
-  CU_SOFTMAC_MAC_CLIENT_PHY_FUNC cu_softmac_mac_attach_to_phy;
+  CU_SOFTMAC_MAC_PHY_FUNC cu_softmac_mac_attach_to_phy;
+  CU_SOFTMAC_MAC_FUNC cu_softmac_mac_detach_from_phy;
   u_int32_t options;
-  void* client_private;
+  void* mac_private;
 } CU_SOFTMAC_MACLAYER_INFO;
 
 /*
