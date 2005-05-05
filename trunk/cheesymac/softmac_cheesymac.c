@@ -284,13 +284,14 @@ static void __exit softmac_cheesymac_exit(void)
 }
 
 static int cu_softmac_mac_packet_tx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
-					  void* mydata,
-					  struct sk_buff* packet, int intop) {
+					      void* mydata,
+					      struct sk_buff* packet,
+					      int intop) {
   CHEESYMAC_INSTANCE* inst = mydata;
   int status = CU_SOFTMAC_MAC_NOTIFY_OK;
 
   if (inst) {
-    if (spin_trylock(&(inst->mac_busy))) {
+    if (!spin_trylock(&(inst->mac_busy))) {
       /*
        *
        */
@@ -341,10 +342,11 @@ static int cu_softmac_mac_packet_tx_done_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
   CHEESYMAC_INSTANCE* inst = mydata;
 
   if (inst) {
-    if (spin_trylock(&(inst->mac_busy))) {
+    if (!spin_trylock(&(inst->mac_busy))) {
       /*
        * If we can't get the lock tell the PHY layer we're busy...
        */
+      printk(KERN_EMERG "CheesyMAC: packet_tx_done -- mac busy!\n");
       return CU_SOFTMAC_MAC_NOTIFY_BUSY;
     }
     /*
@@ -389,7 +391,8 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
     /*
      * XXX the "netif_rx" function is an OS thing, not phy layer...
      */
-    if (spin_trylock(&(inst->mac_busy))) {
+    if (!spin_trylock(&(inst->mac_busy))) {
+      printk(KERN_EMERG "CheesyMAC: packet_rx -- mac busy!\n");
       return CU_SOFTMAC_MAC_NOTIFY_BUSY;
     }
 
