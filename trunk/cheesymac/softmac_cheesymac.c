@@ -240,8 +240,8 @@ static int __init softmac_cheesymac_init(void)
 	 * Now attach our cheesymac instance to the PHY layers
 	 */
 	printk(KERN_EMERG "CheesyMAC: Created instance of self, attaching to PHY\n");
-	//(newmacinfo.cu_softmac_mac_attach_to_phy)(newmacinfo.mac_private,&athphyinfo);
-	//printk(KERN_EMERG "CheesyMAC: Attached to PHY\n");
+	(newmacinfo.cu_softmac_mac_attach_to_phy)(newmacinfo.mac_private,&athphyinfo);
+	printk(KERN_EMERG "CheesyMAC: Attached to PHY\n");
       }
       else {
 	printk(KERN_EMERG "CheesyMAC: Unable to create instance of self!\n");
@@ -511,10 +511,6 @@ cu_softmac_cheesymac_create_instance(CU_SOFTMAC_PHYLAYER_INFO* phyinfo,
       memcpy(&(newinst->myphy),phyinfo,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
     }
 
-    /*
-     * Our mac private info is a pointer to a cheesymac instance
-     */
-    macinfo->mac_private = newinst;
     
     /*
      * Fire up the instance...
@@ -586,7 +582,7 @@ static int cheesymac_setup_instance(CU_SOFTMAC_PHYLAYER_INFO* phyinfo,
   skb_queue_head_init(&(newinst->rx_skbqueue));
 
   /*
-   * Load up the function table so that the SoftMAC layer can
+   * Load up the function table/private info so that the SoftMAC layer can
    * communicate with us.
    */
   cu_softmac_cheesymac_get_macinfo(newinst,macinfo);
@@ -622,7 +618,7 @@ cu_softmac_mac_attach_to_phy_cheesymac(void* handle,
        */
 
       atomic_set(&(inst->attached_to_phy),1);
-      cu_softmac_cheesymac_set_phyinfo(handle,phyinfo);
+      memcpy(&(inst->myphy),phyinfo,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
       cu_softmac_cheesymac_get_macinfo(handle,&cheesymacinfo);
       printk(KERN_EMERG "SoftMAC CheesyMAC: About to call PHY attach\n");
       (phyinfo->cu_softmac_attach_mac)(phyinfo->phyhandle,&cheesymacinfo);
