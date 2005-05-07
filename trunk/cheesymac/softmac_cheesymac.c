@@ -13,6 +13,7 @@
 #include <linux/netdevice.h>
 #include "cu_softmac_api.h"
 #include "cu_softmac_ath_api.h"
+#include "softmac_cheesymac.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Michael Neufeld");
@@ -35,7 +36,7 @@ enum {
 typedef struct  CHEESYMAC_INSTANCE_t {
   struct list_head list;
   CU_SOFTMAC_PHYLAYER_INFO myphy;
-  atomic_t attached_to_phy;
+  int attached_to_phy;
   spinlock_t mac_busy;
   unsigned char txbitrate;
   /*
@@ -73,17 +74,6 @@ typedef struct  CHEESYMAC_INSTANCE_t {
 ** Declarations of functions used internally and/or exported
 **
 */
-
-/*
- * Create a cheesymac instance
- */
-static int
-cu_softmac_cheesymac_create_instance(CU_SOFTMAC_PHYLAYER_INFO* phyinfo,
-				     CU_SOFTMAC_MACLAYER_INFO* macinfo);
-/*
- * Destroy a cheesymac instance
- */
-static int cu_softmac_cheesymac_destroy_instance(void* mypriv);
 
 /*
  * Notify the MAC layer that it is being removed from the PHY -- exported
@@ -146,13 +136,8 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst);
  * Do initialization when creating a CheesyMAC instance -- internal utility
  */
 static int
-cheesymac_setup_instance(CU_SOFTMAC_PHYLAYER_INFO* phyinfo,
-			 CHEESYMAC_INSTANCE* inst,
+cheesymac_setup_instance(CHEESYMAC_INSTANCE* inst,
 			 CU_SOFTMAC_MACLAYER_INFO* macinfo);
-
-static int
-cu_softmac_cheesymac_set_phyinfo(void* mypriv,
-				 CU_SOFTMAC_PHYLAYER_INFO* pinfo);
 
 /*
  * Keep a reference to the head of our linked list of instances
@@ -235,7 +220,7 @@ static int __init softmac_cheesymac_init(void)
        * to the atheros phy layer using the attach function inside
        * of the atheros phy info structure we got earlier.
        */
-      if (!cu_softmac_cheesymac_create_instance(&athphyinfo,&newmacinfo)) {
+      if (!cu_softmac_cheesymac_create_instance(&newmacinfo)) {
 	/*
 	 * Now attach our cheesymac instance to the PHY layers
 	 */
@@ -288,52 +273,90 @@ static void __exit softmac_cheesymac_exit(void)
   }
 }
 
+static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst,
+					  CU_SOFTMAC_PHY_HANDLE nfh,
+					  struct sk_buff* skb) {
+  if (inst && skb) {
+    /*
+     * XXX use of atheros-specific PHY calls!!!
+     */
+    cu_softmac_ath_set_default_phy_props(nfh,skb);
+    cu_softmac_ath_set_tx_bitrate(nfh,skb,inst->txbitrate);    
+  }
+}
+
+/*
+ * cu_softmac_mac_packet_tx_cheesymac
+ * Implementation of "cu_softmac_mac_packet_tx" passed to
+ * the PHY layer.
+ */
 static int cu_softmac_mac_packet_tx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 					      void* mydata,
 					      struct sk_buff* packet,
 					      int intop) {
   CHEESYMAC_INSTANCE* inst = mydata;
   int status = CU_SOFTMAC_MAC_NOTIFY_OK;
+  int txresult = CU_SOFTMAC_PHY_SENDPACKET_OK;
 
   if (inst) {
     if (!spin_trylock(&(inst->mac_busy))) {
       /*
-       *
+       * Make sure nobody tries to steal the MAC layer
+       * out from under us...
        */
       printk(KERN_ALERT "CheesyMAC: packet_tx -- mac busy!\n");
       return CU_SOFTMAC_MAC_NOTIFY_BUSY;
     }
+
     /*
-     * Check to see if we're supposed to defer transmission to the tasklet
+     * Check to see if we're in the top half or bottom half, i.e. are
+     * we taking an interrupt right now?
      */
-    if (inst->defertx) {
+    if (intop) {
       /*
-       * Queue the packet in tx_skbqueue, tell the SoftMAC to run us again
+       * As a general rule, try to keep the stuff you do in the top
+       * half to a minimum. This is during the immediate handling
+       * of an interrupt and the place for time-critical tasks to
+       * occur.
        */
-      //printk(KERN_DEBUG "CheesyMAC: packet_tx -- deferring transmit\n");
-      status = CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN;
+      if (inst->defertx && packet) {
+	/*
+	 * Queue the packet in tx_skbqueue, tell the SoftMAC to run us again
+	 */
+	skb_queue_tail(&(inst->tx_skbqueue),packet);
+	status = CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN;
+      }
+      else if (packet) {
+	/*
+	 * Send the packet now, don't have the SoftMAC run us again
+	 */
+	cu_softmac_cheesymac_prep_skb(inst,nfh,packet);
+	txresult = (inst->myphy.cu_softmac_sendpacket)(nfh,inst->maxinflight,packet);
+	if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
+	  printk(KERN_ALERT "SoftMAC CheesyMAC: top half packet tx failed: %d\n",txresult);
+	}
+
+	status = CU_SOFTMAC_MAC_NOTIFY_OK;
+      }
     }
     else {
-      int txresult = CU_SOFTMAC_PHY_SENDPACKET_OK;
+      struct sk_buff* skb = 0;
       /*
-       * Send the packet now, don't have the SoftMAC run us again
+       * NOT in top half -- process our transmit queue
        */
-
+      if (packet) {
+	skb_queue_tail(&(inst->tx_skbqueue),packet);
+      }
       /*
-       * XXX use of atheros-specific PHY calls!!!
+       * Walk our transmit queue, shovelling out packets as we go...
        */
-      cu_softmac_ath_set_default_phy_props(nfh,packet);
-      cu_softmac_ath_set_tx_bitrate(nfh,packet,inst->txbitrate);
-      //printk(KERN_DEBUG "CheesyMAC: packet_tx -- transmitting packet\n");
-      txresult = (inst->myphy.cu_softmac_sendpacket)(nfh,inst->maxinflight,packet);
-      if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
-	printk(KERN_ALERT "SoftMAC CheesyMAC: packet tx failed: %d\n",txresult);
+      while ((skb = skb_dequeue(&(inst->tx_skbqueue)))) {
+	cu_softmac_cheesymac_prep_skb(inst,nfh,packet);
+	txresult = (inst->myphy.cu_softmac_sendpacket)(nfh,inst->maxinflight,packet);
+	if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
+	  printk(KERN_ALERT "SoftMAC CheesyMAC: tasklet packet tx failed: %d\n",txresult);
+	}
       }
-      else {
-	//printk(KERN_DEBUG "SoftMAC CheesyMAC: packet tx succeeded!\n");
-      }
-
-      status = CU_SOFTMAC_MAC_NOTIFY_OK;
     }
     spin_unlock(&(inst->mac_busy));
   }
@@ -366,22 +389,34 @@ static int cu_softmac_mac_packet_tx_done_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
     /*
      * Check to see if we're supposed to defer handling
      */
-    if (inst->defertxdone) {
-      /*
-       * Queue the packet in txdone_skbqueue, schedule the tasklet
-       * XXX implement this!
-       */
-      status = CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN;
-    }
-    else {
-      /*
-       * Free the packet immediately, do not run again
-       */
-      if (packet) {
+    if (intop) {
+      if (inst->defertxdone && packet) {
+	/*
+	 * Queue the packet in txdone_skbqueue, schedule the tasklet
+	 */
+	skb_queue_tail(&(inst->txdone_skbqueue),packet);
+	status = CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN;
+      }
+      else if (packet) {
+	/*
+	 * Free the packet immediately, do not run again
+	 */
 	(inst->myphy.cu_softmac_free_skb)(nfh,packet);
 	packet = 0;
+	status = CU_SOFTMAC_MAC_NOTIFY_OK;
       }
-      status = CU_SOFTMAC_MAC_NOTIFY_OK;
+    }
+    else {
+      struct sk_buff* skb = 0;
+      /*
+       * In bottom half -- process any deferred packets
+       */
+      if (packet) {
+	skb_queue_tail(&(inst->txdone_skbqueue),packet);
+      }
+      while ((skb = skb_dequeue(&(inst->txdone_skbqueue)))) {
+	(inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,skb);
+      }
     }
     spin_unlock(&(inst->mac_busy));
   }
@@ -409,11 +444,34 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
       printk(KERN_ALERT "CheesyMAC: packet_rx -- mac busy!\n");
       return CU_SOFTMAC_MAC_NOTIFY_BUSY;
     }
-
-    /*
-     * Just send the packet up the network stack
-     */
-    (inst->myphy.cu_softmac_netif_rx_ether)(nfh,packet);
+    if (intop) {
+      if (inst->deferrx && packet) {
+	/*
+	 * Queue packet for later processing
+	 */
+	skb_queue_tail(&(inst->rx_skbqueue),packet);
+	status = CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN;
+      }
+      else if (packet) {
+	/*
+	 * Just send the packet up the network stack
+	 */
+	(inst->myphy.cu_softmac_netif_rx_ether)(nfh,packet);
+      }
+    }
+    else {
+      struct sk_buff* skb = 0;
+      /*
+       * Not in top half - walk our rx queue and send packets
+       * up the stack
+       */
+      if (packet) {
+	skb_queue_tail(&(inst->rx_skbqueue),packet);
+      }
+      while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
+	(inst->myphy.cu_softmac_netif_rx_ether)(nfh,skb);
+      }
+    }
   }
   else {
     printk(KERN_ALERT "CheesyMAC: packet_rx -- no instance handle!\n");
@@ -456,12 +514,12 @@ static int cu_softmac_mac_detach_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
     /*
      * First verify that we're actually attached to some phy layer...
      */
-    if (0 == atomic_read(&(inst->attached_to_phy))) {
+    if (!inst->attached_to_phy) {
       printk(KERN_ALERT "SoftMAC CheesyMAC: Received a detach notification while not attached!\n");
       status = CU_SOFTMAC_MAC_NOTIFY_HOSED;
     }
     else {
-      atomic_set(&(inst->attached_to_phy),0);
+      inst->attached_to_phy = 0;
       memset(&(inst->myphy),0,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
       printk(KERN_ALERT "CheesyMAC: mac_detach -- done\n");
     }
@@ -476,7 +534,7 @@ static int cu_softmac_mac_detach_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
   return status;
 }
 
-static int cu_softmac_cheesymac_destroy_instance(void* mypriv) {
+int cu_softmac_cheesymac_destroy_instance(void* mypriv) {
   CHEESYMAC_INSTANCE* inst = mypriv;
   if (inst) {
     /*
@@ -490,9 +548,8 @@ static int cu_softmac_cheesymac_destroy_instance(void* mypriv) {
   return 0;
 }
 
-static int
-cu_softmac_cheesymac_create_instance(CU_SOFTMAC_PHYLAYER_INFO* phyinfo,
-				     CU_SOFTMAC_MACLAYER_INFO* macinfo) {
+int
+cu_softmac_cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* macinfo) {
   int result = 0;
   CHEESYMAC_INSTANCE* newinst = 0;
 
@@ -506,18 +563,10 @@ cu_softmac_cheesymac_create_instance(CU_SOFTMAC_PHYLAYER_INFO* phyinfo,
     list_add_tail(&newinst->list,&cheesymac_instance_list);
     
     /*
-     * If we got a pointer to PHY layer info make a copy of it
-     */
-    if (phyinfo) {
-      memcpy(&(newinst->myphy),phyinfo,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
-    }
-
-    
-    /*
      * Fire up the instance...
      */
 
-    cheesymac_setup_instance(phyinfo,newinst,macinfo);
+    cheesymac_setup_instance(newinst,macinfo);
   }
   else {
     printk(KERN_ALERT "CheesyMAC create_instance: Unable to allocate memory!\n");
@@ -527,7 +576,7 @@ cu_softmac_cheesymac_create_instance(CU_SOFTMAC_PHYLAYER_INFO* phyinfo,
   return result;
 }
 
-static int
+int
 cu_softmac_cheesymac_get_macinfo(void* macpriv,
 				 CU_SOFTMAC_MACLAYER_INFO* macinfo){
   int result = 0;
@@ -538,17 +587,12 @@ cu_softmac_cheesymac_get_macinfo(void* macpriv,
   macinfo->cu_softmac_mac_detach = cu_softmac_mac_detach_cheesymac;
   macinfo->cu_softmac_mac_attach_to_phy = cu_softmac_mac_attach_to_phy_cheesymac;
   macinfo->cu_softmac_mac_detach_from_phy = cu_softmac_mac_detach_from_phy_cheesymac;
-  /*
-   * XXX need to set the "options" field correctly
-   */
-  macinfo->options = 0;
   macinfo->mac_private = macpriv;
 
   return result;
 }
 
-static int cheesymac_setup_instance(CU_SOFTMAC_PHYLAYER_INFO* phyinfo,
-				    CHEESYMAC_INSTANCE* newinst,
+static int cheesymac_setup_instance(CHEESYMAC_INSTANCE* newinst,
 				    CU_SOFTMAC_MACLAYER_INFO* macinfo) {
   int result = 0;
   /*
@@ -568,7 +612,7 @@ static int cheesymac_setup_instance(CU_SOFTMAC_PHYLAYER_INFO* phyinfo,
   newinst->instanceid = cheesymac_next_instanceid;
   cheesymac_next_instanceid++;
   spin_unlock(&cheesymac_instanceid_lock);
-  atomic_set(&(newinst->attached_to_phy),0);
+  newinst->attached_to_phy = 0;
   newinst->txbitrate = cheesymac_defaultbitrate;
   newinst->defertx = cheesymac_defertx;
   newinst->defertxdone = cheesymac_defertxdone;
@@ -606,7 +650,7 @@ cu_softmac_mac_attach_to_phy_cheesymac(void* handle,
     printk(KERN_DEBUG "SoftMAC CheesyMAC: Attaching to PHY -- getting lock\n");
     spin_lock(&(inst->mac_busy));
     printk(KERN_DEBUG "SoftMAC CheesyMAC: Attaching to PHY -- got lock\n");
-    if (0 != atomic_read(&(inst->attached_to_phy))) {
+    if (inst->attached_to_phy) {
       /*
        * Already attached -- bail out
        */
@@ -617,8 +661,7 @@ cu_softmac_mac_attach_to_phy_cheesymac(void* handle,
       /*
        * Set the phy info and then attach a cheesymac instance
        */
-
-      atomic_set(&(inst->attached_to_phy),1);
+      inst->attached_to_phy = 1;
       memcpy(&(inst->myphy),phyinfo,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
       cu_softmac_cheesymac_get_macinfo(handle,&cheesymacinfo);
       printk(KERN_DEBUG "SoftMAC CheesyMAC: About to call PHY attach\n");
@@ -646,7 +689,7 @@ cu_softmac_mac_detach_from_phy_cheesymac(void* handle) {
      * notification from the PHY layer when it's safe to shut down the
      * MAC layer instance. That cleanup will occur in the callback.
      */
-    if (0 == atomic_read(&(inst->attached_to_phy))) {
+    if (!inst->attached_to_phy) {
       printk(KERN_DEBUG "SoftMAC CheesyMAC: Received a detach request while not attached -- NOP\n");
       /*
        * This isn't so much an error as it is a NOP
@@ -700,29 +743,11 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst) {
   return result;
 }
 
-static int
-cu_softmac_cheesymac_set_phyinfo(void* mypriv,
-				 CU_SOFTMAC_PHYLAYER_INFO* pinfo) {
-  int result = 0;
-  if (mypriv) {
-    CHEESYMAC_INSTANCE* inst = mypriv;
-    spin_lock(&(inst->mac_busy));
-    memcpy(&(inst->myphy),pinfo,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
-    spin_unlock(&(inst->mac_busy));
-    result = 0;
-  }
-  else {
-    result = -1;
-  }
-  return result;
-}
-
 module_init(softmac_cheesymac_init);
 module_exit(softmac_cheesymac_exit);
 
 EXPORT_SYMBOL(cu_softmac_cheesymac_create_instance);
 EXPORT_SYMBOL(cu_softmac_cheesymac_destroy_instance);
-EXPORT_SYMBOL(cu_softmac_cheesymac_set_phyinfo);
 EXPORT_SYMBOL(cu_softmac_cheesymac_get_macinfo);
 
 #if 0

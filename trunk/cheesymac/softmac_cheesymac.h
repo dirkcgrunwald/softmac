@@ -35,11 +35,17 @@
 /*
  * Create a CheesyMAC instance -- exported for multiple MAC layer support
  * (MixMAC, FlexiMAC, MACsalot, MACsploitation)????
+ * This will fill *macinfo in with the appropriate cheesymac instance
+ * information.
  */
 int
-cu_softmac_cheesymac_create_instance(CU_SOFTMAC_PHYLAYER_INFO* pinfo,
-				     CU_SOFTMAC_MACLAYER_INFO* clientinfo);
+cu_softmac_cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* macinfo);
 
+/*
+ * Destroy a cheesymac instance
+ */
+int
+cu_softmac_cheesymac_destroy_instance(void* mypriv);
 
 /*
  * Get MAC layer info for CheesyMAC
@@ -48,9 +54,3 @@ int
 cu_softmac_cheesymac_get_macinfo(void* macpriv,
 				 CU_SOFTMAC_MACLAYER_INFO* macinfo);
 
-/*
- * Set the SoftMAC PHY info to use in an instance -- exported for multiple
- * MAC layer support
- */
-int cu_softmac_cheesymac_set_phyinfo(void* mypriv,
-				     CU_SOFTMAC_PHYLAYER_INFO* pinfo);
