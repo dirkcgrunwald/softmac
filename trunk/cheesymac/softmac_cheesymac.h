@@ -32,6 +32,18 @@
 **
  */
 
+
+/*
+ * Basic properties of a cheesymac instance
+ */
+typedef struct {
+  int32_t txbitrate;
+  int32_t defertx;
+  int32_t defertxdone;
+  int32_t deferrx;
+  int32_t maxinflight;
+} CU_SOFTMAC_CHEESYMAC_PARAMETERS;
+
 /*
  * Create a CheesyMAC instance -- exported for multiple MAC layer support
  * (MixMAC, FlexiMAC, MACsalot, MACsploitation)????
@@ -39,18 +51,30 @@
  * information.
  */
 int
-cu_softmac_cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* macinfo);
+cu_softmac_cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* macinfo,
+				     CU_SOFTMAC_CHEESYMAC_PARAMETERS* params);
 
 /*
  * Destroy a cheesymac instance
  */
 int
-cu_softmac_cheesymac_destroy_instance(void* mypriv);
+cu_softmac_cheesymac_destroy_instance(void* macpriv);
 
 /*
- * Get MAC layer info for CheesyMAC
+ * Get and set MAC layer info for CheesyMAC
  */
 int
 cu_softmac_cheesymac_get_macinfo(void* macpriv,
 				 CU_SOFTMAC_MACLAYER_INFO* macinfo);
 
+void
+cu_softmac_cheesymac_get_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params);
+void
+cu_softmac_cheesymac_set_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params);
+
+void
+cu_softmac_cheesymac_get_instance_params(void* macpriv,
+					 CU_SOFTMAC_CHEESYMAC_PARAMETERS* params);
+void
+cu_softmac_cheesymac_set_instance_params(void* macpriv,
+					 CU_SOFTMAC_CHEESYMAC_PARAMETERS* params);

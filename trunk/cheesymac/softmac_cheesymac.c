@@ -11,6 +11,7 @@
 #include <linux/list.h>
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
+#include <linux/proc_fs.h>
 #include "cu_softmac_api.h"
 #include "cu_softmac_ath_api.h"
 #include "softmac_cheesymac.h"
@@ -30,6 +31,7 @@ enum {
   CHEESYMAC_DEFAULT_MAXINFLIGHT = 256,
   CHEESYMAC_DEFAULT_DEFERALLRX = 0,
   CHEESYMAC_DEFAULT_DEFERALLTXDONE = 0,
+  CHEESYMAC_PROCDIRNAME_LEN = 64,
 };
 
 
@@ -39,9 +41,6 @@ typedef struct  CHEESYMAC_INSTANCE_t {
   int attached_to_phy;
   spinlock_t mac_busy;
   unsigned char txbitrate;
-  /*
-   * XXX expose the "defer" properties...
-   */
   int defertx;
   int defertxdone;
   int deferrx;
@@ -66,6 +65,7 @@ typedef struct  CHEESYMAC_INSTANCE_t {
    * Keep a handle to the root procfs directory for this instance
    */
   struct proc_dir_entry* my_procfs_root;
+  char procdirname[CHEESYMAC_PROCDIRNAME_LEN];
  
 } CHEESYMAC_INSTANCE;
 
@@ -137,17 +137,30 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst);
  */
 static int
 cheesymac_setup_instance(CHEESYMAC_INSTANCE* inst,
-			 CU_SOFTMAC_MACLAYER_INFO* macinfo);
+			 CU_SOFTMAC_MACLAYER_INFO* macinfo,
+			 CU_SOFTMAC_CHEESYMAC_PARAMETERS* params);
+
+static int cheesymac_make_procfs_entries(CHEESYMAC_INSTANCE* inst);
+static int cheesymac_delete_procfs_entries(CHEESYMAC_INSTANCE* inst);
+
 
 /*
  * Keep a reference to the head of our linked list of instances
  */
 static LIST_HEAD(cheesymac_instance_list);
 
+
+/*
+ * Some operations, i.e. getting/setting the next instance ID
+ * and accessing default parameters, should be performed
+ * atomically.
+ */
+static spinlock_t cheesymac_global_lock = SPIN_LOCK_UNLOCKED;
+
 /*
  * First instance ID to use is 1
  */
-static spinlock_t cheesymac_instanceid_lock = SPIN_LOCK_UNLOCKED;
+
 static int cheesymac_next_instanceid = 1;
 /*
  * Default to 1 Mb/s
@@ -158,8 +171,15 @@ static int cheesymac_defertx = CHEESYMAC_DEFAULT_DEFERTX;
 static int cheesymac_defertxdone = CHEESYMAC_DEFAULT_DEFERTXDONE;
 static int cheesymac_deferrx = CHEESYMAC_DEFAULT_DEFERRX;
 static int cheesymac_maxinflight = CHEESYMAC_DEFAULT_MAXINFLIGHT;
-static int cheesymac_deferallrx = CHEESYMAC_DEFAULT_DEFERALLRX;
-static int cheesymac_deferalltxdone = CHEESYMAC_DEFAULT_DEFERALLTXDONE;
+
+#if 0
+/*
+ * XXX
+ * use the ath-specific "deferallrx" and "deferalltxdone"?
+ */
+static int cheesymac_ath_deferallrx = CHEESYMAC_DEFAULT_DEFERALLRX;
+static int cheesymac_ath_deferalltxdone = CHEESYMAC_DEFAULT_DEFERALLTXDONE;
+#endif
 
 /*
  * Optionally attach the cheesymac to a softmac phy upon loading
@@ -169,7 +189,8 @@ static int cheesymac_attach_on_load = 0;
 /*
  * Default root directory for cheesymac procfs entries
  */
-static char *cheesymac_procfsroot = "softmac/cheesymac";
+static char *cheesymac_procfsroot = "cheesymac";
+static struct proc_dir_entry* cheesymac_procfsroot_handle = 0;
 
 /*
  * Default network interface to use as a softmac phy layer
@@ -185,7 +206,7 @@ MODULE_PARM_DESC(cheesymac_deferrx, "Queue received packets and defer handling t
 module_param(cheesymac_maxinflight, int, 0644);
 MODULE_PARM_DESC(cheesymac_maxinflight, "Limit the number of packets allowed to be in the pipeline for transmission");
 
-module_param(cheesymac_procfsroot, charp, 0644);
+module_param(cheesymac_procfsroot, charp, 0444);
 MODULE_PARM_DESC(cheesymac_procfsroot, "Subdirectory in procfs to use for cheesymac parameters/statistics");
 
 module_param(cheesymac_defaultphy, charp, 0644);
@@ -194,13 +215,11 @@ MODULE_PARM_DESC(cheesymac_defaultphy, "Network interface to use for SoftMAC PHY
 module_param(cheesymac_attach_on_load, int, S_IRUSR | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(cheesymac_attach_on_load,"Set to non-zero to have the cheesymac attach itself to the softmac upon loading");
 
-/*
- * XXX Finish setting default values for module params!
- */
-
 static int __init softmac_cheesymac_init(void)
 {
   printk(KERN_DEBUG "Loading CheesyMAC\n");
+  
+  cheesymac_procfsroot_handle = proc_mkdir(cheesymac_procfsroot,0);
   if (cheesymac_attach_on_load) {
     CU_SOFTMAC_MACLAYER_INFO newmacinfo;
     CU_SOFTMAC_PHYLAYER_INFO athphyinfo;
@@ -220,13 +239,22 @@ static int __init softmac_cheesymac_init(void)
        * to the atheros phy layer using the attach function inside
        * of the atheros phy info structure we got earlier.
        */
-      if (!cu_softmac_cheesymac_create_instance(&newmacinfo)) {
+      if (!cu_softmac_cheesymac_create_instance(&newmacinfo,0)) {
 	/*
 	 * Now attach our cheesymac instance to the PHY layers
 	 */
 	printk(KERN_DEBUG "CheesyMAC: Created instance of self, attaching to PHY\n");
-	(newmacinfo.cu_softmac_mac_attach_to_phy)(newmacinfo.mac_private,&athphyinfo);
-	printk(KERN_DEBUG "CheesyMAC: Attached to PHY\n");
+	if (!(newmacinfo.cu_softmac_mac_attach_to_phy)(newmacinfo.mac_private,&athphyinfo)) {
+	  printk(KERN_DEBUG "CheesyMAC: Attached to PHY\n");
+	}
+	else {
+	  printk(KERN_ALERT "CheesyMAC: Unable to attach to PHY!\n");
+	  /*
+	   * Whack the cheesymac instance we just created
+	   */
+	  cu_softmac_cheesymac_destroy_instance(newmacinfo.mac_private);
+	  memset(&newmacinfo,0,sizeof(CU_SOFTMAC_MACLAYER_INFO));
+	}
       }
       else {
 	printk(KERN_ALERT "CheesyMAC: Unable to create instance of self!\n");
@@ -235,9 +263,6 @@ static int __init softmac_cheesymac_init(void)
     else {
       printk(KERN_ALERT "CheesyMAC: Unable to find net interface %s\n",cheesymac_defaultphy);
     }
-    /*
-     * XXX do cleanup if "attach on load" fails
-     */
   }
 
   return 0;
@@ -270,6 +295,13 @@ static void __exit softmac_cheesymac_exit(void)
   }
   else {
     printk(KERN_DEBUG "CheesyMAC: No instances found\n");
+  }
+
+  /*
+   * Remove the root procfs directory very last of all...
+   */
+  if (cheesymac_procfsroot_handle) {
+    remove_proc_entry(cheesymac_procfsroot,0);
   }
 }
 
@@ -503,9 +535,9 @@ static int cu_softmac_mac_detach_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
   int status = CU_SOFTMAC_MAC_NOTIFY_OK;
   if (mypriv) {
     CHEESYMAC_INSTANCE* inst = mypriv;
-    printk(KERN_ALERT "CheesyMAC: mac_detach -- getting lock\n");
+    printk(KERN_DEBUG "CheesyMAC: mac_detach -- getting lock\n");
     spin_lock(&(inst->mac_busy));
-    printk(KERN_ALERT "CheesyMAC: mac_detach -- got lock\n");
+    printk(KERN_DEBUG "CheesyMAC: mac_detach -- got lock\n");
     /*
      * The PHY layer has finished detaching us -- make sure we don't
      * use it any more.
@@ -521,11 +553,10 @@ static int cu_softmac_mac_detach_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
     else {
       inst->attached_to_phy = 0;
       memset(&(inst->myphy),0,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
-      printk(KERN_ALERT "CheesyMAC: mac_detach -- done\n");
+      printk(KERN_DEBUG "CheesyMAC: mac_detach -- done\n");
     }
     spin_unlock(&(inst->mac_busy));
-    printk(KERN_ALERT "CheesyMAC: mac_detach -- released lock\n");
-    // XXX finish this
+    printk(KERN_DEBUG "CheesyMAC: mac_detach -- released lock\n");
   }
   else {
     printk(KERN_ALERT "CheesyMAC: mac_detach -- no instance handle!\n");
@@ -542,6 +573,7 @@ int cu_softmac_cheesymac_destroy_instance(void* mypriv) {
      */
     list_del(&(inst->list));
     cheesymac_cleanup_instance(inst);
+
     kfree(inst);
     inst = 0;
   }
@@ -549,7 +581,8 @@ int cu_softmac_cheesymac_destroy_instance(void* mypriv) {
 }
 
 int
-cu_softmac_cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* macinfo) {
+cu_softmac_cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* macinfo,
+				     CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
   int result = 0;
   CHEESYMAC_INSTANCE* newinst = 0;
 
@@ -566,7 +599,8 @@ cu_softmac_cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* macinfo) {
      * Fire up the instance...
      */
 
-    cheesymac_setup_instance(newinst,macinfo);
+    cheesymac_setup_instance(newinst,macinfo,params);
+
   }
   else {
     printk(KERN_ALERT "CheesyMAC create_instance: Unable to allocate memory!\n");
@@ -592,8 +626,47 @@ cu_softmac_cheesymac_get_macinfo(void* macpriv,
   return result;
 }
 
+static int
+cheesymac_make_procfs_entries(CHEESYMAC_INSTANCE* inst) {
+  int result = 0;
+
+  if (inst) {
+    /*
+     * First make the directory. For right now, we're just using the unique
+     * MAC layer ID that was assigned upon creation.
+     */
+    snprintf(inst->procdirname,CHEESYMAC_PROCDIRNAME_LEN,"%d",inst->instanceid);
+    if (inst->procdirname[0]) {
+      proc_mkdir(inst->procdirname,inst->my_procfs_root);
+    }
+
+    /*
+     * XXX make individual entries
+     */
+  }
+  return result;
+}
+
+static int cheesymac_delete_procfs_entries(CHEESYMAC_INSTANCE* inst) {
+  int result = 0;
+  if (inst) {
+    /*
+     * XXX remove individual entries
+     */
+    
+    /*
+     * Lastly, remove the directory
+     */
+    if (inst->procdirname[0]) {
+      remove_proc_entry(inst->procdirname,inst->my_procfs_root);
+    }
+  }
+  return result;
+}
+
 static int cheesymac_setup_instance(CHEESYMAC_INSTANCE* newinst,
-				    CU_SOFTMAC_MACLAYER_INFO* macinfo) {
+				    CU_SOFTMAC_MACLAYER_INFO* macinfo,
+				    CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
   int result = 0;
   /*
    * Set up a CheesyMAC instance
@@ -608,16 +681,28 @@ static int cheesymac_setup_instance(CHEESYMAC_INSTANCE* newinst,
    * Now acquire the mac_busy lock and start bashing on the instance...
    */
   spin_lock(&(newinst->mac_busy));
-  spin_lock(&cheesymac_instanceid_lock);
+  newinst->attached_to_phy = 0;
+
+  /*
+   * Access the global cheesymac variables safely
+   */
+  spin_lock(&cheesymac_global_lock);
   newinst->instanceid = cheesymac_next_instanceid;
   cheesymac_next_instanceid++;
-  spin_unlock(&cheesymac_instanceid_lock);
-  newinst->attached_to_phy = 0;
   newinst->txbitrate = cheesymac_defaultbitrate;
   newinst->defertx = cheesymac_defertx;
   newinst->defertxdone = cheesymac_defertxdone;
   newinst->deferrx = cheesymac_deferrx;
   newinst->maxinflight = cheesymac_maxinflight;
+  spin_unlock(&cheesymac_global_lock);
+
+  if (params) {
+    newinst->txbitrate = params->txbitrate;
+    newinst->defertx = params->defertx;
+    newinst->defertxdone = params->defertxdone;
+    newinst->deferrx = params->deferrx;
+    newinst->maxinflight = params->maxinflight;
+  }
 
   /*
    * Initialize our packet queues
@@ -633,9 +718,10 @@ static int cheesymac_setup_instance(CHEESYMAC_INSTANCE* newinst,
   cu_softmac_cheesymac_get_macinfo(newinst,macinfo);
 
   /*
-   * XXX
    * Create procfs entries
    */
+  newinst->my_procfs_root = cheesymac_procfsroot_handle;
+  cheesymac_make_procfs_entries(newinst);
   spin_unlock(&(newinst->mac_busy));
   return result;
 }
@@ -719,11 +805,10 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst) {
 
   spin_lock(&(inst->mac_busy));
 
-
   /*
-   * XXX
    * remove procfs entries
    */
+  cheesymac_delete_procfs_entries(inst);
 
   /*
    * Drain queues...
@@ -743,12 +828,85 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst) {
   return result;
 }
 
+void
+cu_softmac_cheesymac_get_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
+  if (params) {
+    spin_lock(&cheesymac_global_lock);
+    params->txbitrate = cheesymac_defaultbitrate;
+    params->defertx = cheesymac_defertx;
+    params->defertxdone = cheesymac_defertxdone;
+    params->deferrx = cheesymac_deferrx;
+    params->maxinflight = cheesymac_maxinflight;
+    spin_unlock(&cheesymac_global_lock);
+  }
+  else {
+    printk(KERN_DEBUG "SoftMAC CheesyMAC: Called get_default_params with null parameters!\n");
+  }
+}
+
+void
+cu_softmac_cheesymac_set_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
+  if (params) {
+    spin_lock(&cheesymac_global_lock);
+    cheesymac_defaultbitrate = params->txbitrate;
+    cheesymac_defertx = params->defertx;
+    cheesymac_defertxdone = params->defertxdone;
+    cheesymac_deferrx = params->deferrx;
+    cheesymac_maxinflight = params->maxinflight;
+    spin_unlock(&cheesymac_global_lock);
+  }
+  else {
+    printk(KERN_DEBUG "SoftMAC CheesyMAC: Called set_default_params with null parameters!\n");
+  }
+}
+
+void
+cu_softmac_cheesymac_get_instance_params(void* macpriv,
+					 CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
+  if (macpriv && params) {
+    CHEESYMAC_INSTANCE* inst = macpriv;
+    spin_lock(&(inst->mac_busy));
+    params->txbitrate = inst->txbitrate;
+    params->defertx = inst->defertx;
+    params->defertxdone = inst->defertxdone;
+    params->deferrx = inst->deferrx;
+    params->maxinflight = inst->maxinflight;    
+    spin_unlock(&(inst->mac_busy));
+  }
+  else {
+    printk(KERN_DEBUG "SoftMAC CheesyMAC: Called get_instance_params with bad data!\n");
+  }
+}
+
+void
+cu_softmac_cheesymac_set_instance_params(void* macpriv,
+					 CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
+  if (macpriv && params) {
+    CHEESYMAC_INSTANCE* inst = macpriv;
+    spin_lock(&(inst->mac_busy));
+    inst->txbitrate = params->txbitrate;
+    inst->defertx = params->defertx;
+    inst->defertxdone = params->defertxdone;
+    inst->deferrx = params->deferrx;
+    inst->maxinflight = params->maxinflight;
+    spin_unlock(&(inst->mac_busy));
+  }
+  else {
+    printk(KERN_DEBUG "SoftMAC CheesyMAC: Called set_instance_params with bad data!\n");
+  }
+}
+
+
 module_init(softmac_cheesymac_init);
 module_exit(softmac_cheesymac_exit);
 
 EXPORT_SYMBOL(cu_softmac_cheesymac_create_instance);
 EXPORT_SYMBOL(cu_softmac_cheesymac_destroy_instance);
 EXPORT_SYMBOL(cu_softmac_cheesymac_get_macinfo);
+EXPORT_SYMBOL(cu_softmac_cheesymac_get_default_params);
+EXPORT_SYMBOL(cu_softmac_cheesymac_set_default_params);
+EXPORT_SYMBOL(cu_softmac_cheesymac_get_instance_params);
+EXPORT_SYMBOL(cu_softmac_cheesymac_set_instance_params);
 
 #if 0
 /*
