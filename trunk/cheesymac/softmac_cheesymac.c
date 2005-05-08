@@ -21,25 +21,42 @@ MODULE_AUTHOR("Michael Neufeld");
 
 
 /*
- * By default we don't defer, don't throttle packets in flight.
- * Can override these upon module load.
+**
+** Per-instance data for the MAC
+**
+*/
+
+/*
+ * This is the structure containing all of the state information
+ * required for each instance.
  */
 enum {
-  CHEESYMAC_DEFAULT_DEFERTX = 0,
-  CHEESYMAC_DEFAULT_DEFERTXDONE = 0,
-  CHEESYMAC_DEFAULT_DEFERRX = 0,
-  CHEESYMAC_DEFAULT_MAXINFLIGHT = 256,
-  CHEESYMAC_DEFAULT_DEFERALLRX = 0,
-  CHEESYMAC_DEFAULT_DEFERALLTXDONE = 0,
   CHEESYMAC_PROCDIRNAME_LEN = 64,
 };
-
-
-typedef struct  CHEESYMAC_INSTANCE_t {
+typedef struct CHEESYMAC_INSTANCE_t {
   struct list_head list;
+  spinlock_t mac_busy;
   CU_SOFTMAC_PHYLAYER_INFO myphy;
   int attached_to_phy;
-  spinlock_t mac_busy;
+  /*
+   * We keep a unique ID for each instance we create in order to
+   * do things like create separate proc directories for the settings
+   * on each one.
+   */
+  int instanceid;
+
+  /*
+   * Keep a handle to the root procfs directory for this instance
+   */
+  struct proc_dir_entry* my_procfs_root;
+  char procdirname[CHEESYMAC_PROCDIRNAME_LEN];
+  struct proc_dir_entry* my_procfs_dir;
+  struct list_head my_procfs_data;
+
+  /*
+   * Some parameters determining basic phy properties,
+   * behavior w.r.t. top half/bottom half processing
+   */
   unsigned char txbitrate;
   int defertx;
   int defertxdone;
@@ -54,20 +71,78 @@ typedef struct  CHEESYMAC_INSTANCE_t {
   struct sk_buff_head txdone_skbqueue;
   struct sk_buff_head rx_skbqueue;
 
-  /*
-   * We keep a unique ID for each instance we create in order to
-   * do things like create separate proc directories for the settings
-   * on each one.
-   */
-  int instanceid;
 
-  /*
-   * Keep a handle to the root procfs directory for this instance
-   */
-  struct proc_dir_entry* my_procfs_root;
-  char procdirname[CHEESYMAC_PROCDIRNAME_LEN];
- 
 } CHEESYMAC_INSTANCE;
+
+/*
+ * Information about each proc filesystem entry for instance
+ * parameters. An array of these will be used to specify
+ * the proc entries to create for each MAC instance.
+ */
+typedef struct {
+  const char* name;
+  mode_t mode;
+  int entryid;
+} CHEESYMAC_INST_PROC_ENTRY;
+
+/*
+ * Constants for proc entries for each CheesyMAC instance
+ */
+enum {
+  CHEESYMAC_INST_PROC_TXBITRATE,
+  CHEESYMAC_INST_PROC_DEFERTX,
+  CHEESYMAC_INST_PROC_DEFERTXDONE,
+  CHEESYMAC_INST_PROC_DEFERRX,
+  CHEESYMAC_INST_PROC_MAXINFLIGHT,
+  CHEESYMAC_INST_PROC_COUNT
+};
+
+/*
+ * Proc filesystem entries for each cheesymac instance. The "data"
+ * field will be passed in to a generic read/write routine that
+ * will use it to determine how to handle the read/write.
+ */
+static const CHEESYMAC_INST_PROC_ENTRY cheesymac_inst_proc_entries[] = {
+  {
+    "txbitrate",
+    0644,
+    CHEESYMAC_INST_PROC_TXBITRATE
+  },  
+  {
+    "defertx",
+    0644,
+    CHEESYMAC_INST_PROC_DEFERTX
+  },
+  {
+    "defertxdone",
+    0644,
+    CHEESYMAC_INST_PROC_DEFERTXDONE
+  },
+  {
+    "deferrx",
+    0644,
+    CHEESYMAC_INST_PROC_DEFERRX
+  },
+  {
+    "maxinflight",
+    0644,
+    CHEESYMAC_INST_PROC_MAXINFLIGHT
+  },
+};
+
+/*
+ * An instance of this data structure is created for each proc
+ * filesystem entry and placed into a linked list associated
+ * with each instance. This allows us to handle proc filesystem
+ * read/write requests.
+ */
+typedef struct {
+  struct list_head list;
+  CHEESYMAC_INSTANCE* inst;
+  int entryid;
+  char name[CHEESYMAC_PROCDIRNAME_LEN];
+  struct proc_dir_entry* parentdir;  
+} CHEESYMAC_INST_PROC_DATA;
 
 /*
 **
@@ -142,7 +217,30 @@ cheesymac_setup_instance(CHEESYMAC_INSTANCE* inst,
 
 static int cheesymac_make_procfs_entries(CHEESYMAC_INSTANCE* inst);
 static int cheesymac_delete_procfs_entries(CHEESYMAC_INSTANCE* inst);
+static int cheesymac_inst_read_proc(char *page, char **start, off_t off,
+				    int count, int *eof, void *data);
+static int cheesymac_inst_write_proc(struct file *file,
+				     const char __user *buffer,
+				     unsigned long count, void *data);
+/*
+**
+** Module parameters
+**
+*/
 
+/*
+ * Initial values for global MAC default parameter values.
+ * Can override these upon module load.
+ */
+enum {
+  CHEESYMAC_DEFAULT_DEFERTX = 0,
+  CHEESYMAC_DEFAULT_DEFERTXDONE = 0,
+  CHEESYMAC_DEFAULT_DEFERRX = 0,
+  CHEESYMAC_DEFAULT_MAXINFLIGHT = 256,
+  CHEESYMAC_DEFAULT_DEFERALLRX = 0,
+  CHEESYMAC_DEFAULT_DEFERALLTXDONE = 0,
+
+};
 
 /*
  * Keep a reference to the head of our linked list of instances
@@ -220,6 +318,7 @@ static int __init softmac_cheesymac_init(void)
   printk(KERN_DEBUG "Loading CheesyMAC\n");
   
   cheesymac_procfsroot_handle = proc_mkdir(cheesymac_procfsroot,0);
+  cheesymac_procfsroot_handle->owner = THIS_MODULE;
   if (cheesymac_attach_on_load) {
     CU_SOFTMAC_MACLAYER_INFO newmacinfo;
     CU_SOFTMAC_PHYLAYER_INFO athphyinfo;
@@ -594,7 +693,7 @@ cu_softmac_cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* macinfo,
     memset(newinst,0,sizeof(CHEESYMAC_INSTANCE));
     INIT_LIST_HEAD(&newinst->list);
     list_add_tail(&newinst->list,&cheesymac_instance_list);
-    
+    INIT_LIST_HEAD(&newinst->my_procfs_data);
     /*
      * Fire up the instance...
      */
@@ -631,18 +730,51 @@ cheesymac_make_procfs_entries(CHEESYMAC_INSTANCE* inst) {
   int result = 0;
 
   if (inst) {
-    /*
-     * First make the directory. For right now, we're just using the unique
-     * MAC layer ID that was assigned upon creation.
-     */
-    snprintf(inst->procdirname,CHEESYMAC_PROCDIRNAME_LEN,"%d",inst->instanceid);
-    if (inst->procdirname[0]) {
-      proc_mkdir(inst->procdirname,inst->my_procfs_root);
-    }
+    int i = 0;
+    struct proc_dir_entry* curprocentry = 0;
+    CHEESYMAC_INST_PROC_DATA* curprocdata = 0;
 
     /*
-     * XXX make individual entries
+     * First make the directory. For right now, we're just using the unique
+     * MAC layer ID that was assigned upon creation as a name.
      */
+    snprintf(inst->procdirname,CHEESYMAC_PROCDIRNAME_LEN,"%d",inst->instanceid);
+    inst->my_procfs_dir = proc_mkdir(inst->procdirname,inst->my_procfs_root);
+    inst->my_procfs_dir->owner = THIS_MODULE;
+
+    /*
+     * Make individual entries
+     * XXX make sure lengths of names are OK...
+     */
+    for (i=0;i<sizeof(cheesymac_inst_proc_entries);i++) {
+      curprocentry = create_proc_entry(cheesymac_inst_proc_entries[i].name,
+				       cheesymac_inst_proc_entries[i].mode,
+				       inst->my_procfs_dir);
+      curprocentry->owner = THIS_MODULE;
+
+      /*
+       * Allocate and fill out a proc data structure, add it
+       * to the linked list for the instance.
+       */
+      curprocdata = kmalloc(sizeof(CHEESYMAC_INST_PROC_DATA),GFP_ATOMIC);
+      INIT_LIST_HEAD((&curprocdata->list));
+      list_add_tail(&(curprocdata->list),&(inst->my_procfs_data));
+      curprocdata->inst = inst;
+      curprocdata->entryid = cheesymac_inst_proc_entries[i].entryid;
+      strncpy(curprocdata->name,cheesymac_inst_proc_entries[i].name,CHEESYMAC_PROCDIRNAME_LEN);
+      curprocdata->parentdir = inst->my_procfs_dir;
+
+      /*
+       * Hook up the new proc entry data
+       */
+      curprocentry->data = curprocdata;
+
+      /*
+       * Set read/write functions for the proc entry.
+       */
+      curprocentry->read_proc = cheesymac_inst_read_proc;
+      curprocentry->write_proc = cheesymac_inst_write_proc;
+    }
   }
   return result;
 }
@@ -650,16 +782,25 @@ cheesymac_make_procfs_entries(CHEESYMAC_INSTANCE* inst) {
 static int cheesymac_delete_procfs_entries(CHEESYMAC_INSTANCE* inst) {
   int result = 0;
   if (inst) {
+    struct list_head* tmp = 0;
+    struct list_head* p = 0;
+    CHEESYMAC_INST_PROC_DATA* proc_entry_data = 0;
+
     /*
-     * XXX remove individual entries
+     * First remove individual entries and delete their data
      */
-    
+    list_for_each_safe(p,tmp,&inst->my_procfs_data) {
+      proc_entry_data = list_entry(p,CHEESYMAC_INST_PROC_DATA,list);
+      list_del(p);
+      remove_proc_entry(proc_entry_data->name,proc_entry_data->parentdir);
+      kfree(proc_entry_data);
+      proc_entry_data = 0;
+    }
+
     /*
      * Lastly, remove the directory
      */
-    if (inst->procdirname[0]) {
-      remove_proc_entry(inst->procdirname,inst->my_procfs_root);
-    }
+    remove_proc_entry(inst->procdirname,inst->my_procfs_root);
   }
   return result;
 }
@@ -723,6 +864,132 @@ static int cheesymac_setup_instance(CHEESYMAC_INSTANCE* newinst,
   newinst->my_procfs_root = cheesymac_procfsroot_handle;
   cheesymac_make_procfs_entries(newinst);
   spin_unlock(&(newinst->mac_busy));
+  return result;
+}
+
+static int
+cheesymac_inst_read_proc(char *page, char **start, off_t off,
+			 int count, int *eof, void *data) {
+  int result = 0;
+  CHEESYMAC_INST_PROC_DATA* procdata = data;
+  if (procdata && procdata->inst) {
+    CHEESYMAC_INSTANCE* inst = procdata->inst;
+    char* dest = (page + off);
+    int intval = 0;
+
+    switch (procdata->entryid) {
+    case CHEESYMAC_INST_PROC_TXBITRATE:
+      spin_lock(&(inst->mac_busy));
+      intval = inst->deferrx;
+      spin_unlock(&(inst->mac_busy));
+      result = snprintf(dest,count,"%d",intval);
+      *eof = 1;
+      break;
+    case CHEESYMAC_INST_PROC_DEFERTX:
+      spin_lock(&(inst->mac_busy));
+      intval = inst->defertx;
+      spin_unlock(&(inst->mac_busy));
+      result = snprintf(dest,count,"%d",intval);
+      *eof = 1;
+      break;
+    case CHEESYMAC_INST_PROC_DEFERTXDONE:
+      spin_lock(&(inst->mac_busy));
+      intval = inst->defertxdone;
+      spin_unlock(&(inst->mac_busy));
+      result = snprintf(dest,count,"%d",intval);
+      *eof = 1;
+      break;
+    case CHEESYMAC_INST_PROC_DEFERRX:
+      spin_lock(&(inst->mac_busy));
+      intval = inst->deferrx;
+      spin_unlock(&(inst->mac_busy));
+      result = snprintf(dest,count,"%d",intval);
+      *eof = 1;
+      break;
+    case CHEESYMAC_INST_PROC_MAXINFLIGHT:
+      spin_lock(&(inst->mac_busy));
+      intval = inst->maxinflight;
+      spin_unlock(&(inst->mac_busy));
+      result = snprintf(dest,count,"%d",intval);
+      *eof = 1;
+      break;
+
+    default:
+      /*
+       * Unknown entry -- do something benign
+       */
+      result = 0;
+      *eof = 1;
+      break;
+    }
+  }
+  return result;
+}
+
+static int
+cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
+			  unsigned long count, void *data) {
+  int result = 0;
+  CHEESYMAC_INST_PROC_DATA* procdata = data;
+  if (procdata && procdata->inst) {
+    CHEESYMAC_INSTANCE* inst = procdata->inst;
+    char kdata[256];
+    char* endp = 0;
+    long intval = 0;
+
+    /*
+     * Drag the data over into kernel land
+     */
+    if (255 < count) {
+      copy_from_user(kdata,buffer,255);
+    }
+    else {
+      copy_from_user(kdata,buffer,count);
+    }
+    /*
+     * Working with the assumption that we're supposed to
+     * be getting text data we cap the end of the string
+     * with a null terminator. This may not be true for
+     * everyone, feel free to alter this as it suits your needs.
+     */
+    kdata[255] = 0;
+
+    switch (procdata->entryid) {
+    case CHEESYMAC_INST_PROC_TXBITRATE:
+      intval = simple_strtol(kdata,&endp,10);
+      spin_lock(&(inst->mac_busy));
+      inst->txbitrate = intval;
+      spin_unlock(&(inst->mac_busy));
+      break;
+    case CHEESYMAC_INST_PROC_DEFERTX:
+      intval = simple_strtol(kdata,&endp,10);
+      spin_lock(&(inst->mac_busy));
+      inst->defertx = intval;
+      spin_unlock(&(inst->mac_busy));
+      break;
+    case CHEESYMAC_INST_PROC_DEFERTXDONE:
+      intval = simple_strtol(kdata,&endp,10);
+      spin_lock(&(inst->mac_busy));
+      inst->defertxdone = intval;
+      spin_unlock(&(inst->mac_busy));
+      break;
+    case CHEESYMAC_INST_PROC_DEFERRX:
+      intval = simple_strtol(kdata,&endp,10);
+      spin_lock(&(inst->mac_busy));
+      inst->deferrx = intval;
+      spin_unlock(&(inst->mac_busy));
+      break;
+    case CHEESYMAC_INST_PROC_MAXINFLIGHT:
+      intval = simple_strtol(kdata,&endp,10);
+      spin_lock(&(inst->mac_busy));
+      inst->maxinflight = intval;
+      spin_unlock(&(inst->mac_busy));
+      break;
+
+    default:
+      break;
+    }
+  }
   return result;
 }
 
