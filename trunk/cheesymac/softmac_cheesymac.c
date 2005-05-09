@@ -26,13 +26,18 @@ MODULE_AUTHOR("Michael Neufeld");
 **
 */
 
+
 /*
- * This is the structure containing all of the state information
- * required for each instance.
+ *
  */
 enum {
   CHEESYMAC_PROCDIRNAME_LEN = 64,
 };
+
+/*
+ * This is the structure containing all of the state information
+ * required for each CheesyMAC instance.
+ */
 typedef struct CHEESYMAC_INSTANCE_t {
   struct list_head list;
   spinlock_t mac_busy;
@@ -70,8 +75,6 @@ typedef struct CHEESYMAC_INSTANCE_t {
   struct sk_buff_head tx_skbqueue;
   struct sk_buff_head txdone_skbqueue;
   struct sk_buff_head rx_skbqueue;
-
-
 } CHEESYMAC_INSTANCE;
 
 /*
@@ -128,6 +131,14 @@ static const CHEESYMAC_INST_PROC_ENTRY cheesymac_inst_proc_entries[] = {
     0644,
     CHEESYMAC_INST_PROC_MAXINFLIGHT
   },
+  /*
+   * Using this as the "null terminator" for the item list
+   */
+  {
+    0,
+    0,
+    -1
+  },
 };
 
 /*
@@ -146,7 +157,8 @@ typedef struct {
 
 /*
 **
-** Declarations of functions used internally and/or exported
+** Declarations of functions exported via the MAC info table.
+** ("public" members of the MAC base class)
 **
 */
 
@@ -195,11 +207,25 @@ cu_softmac_mac_packet_tx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 				   void* mydata,
 				   struct sk_buff* packet, int intop);
 
+/*
+ * Tell the MAC layer to attach to the specified PHY layer
+ */
 static int
 cu_softmac_mac_attach_to_phy_cheesymac(void* handle,
 				       CU_SOFTMAC_PHYLAYER_INFO* phyinfo);
+
+/*
+ * Tell the MAC layer to detach from the specified PHY layer
+ */
 static int
 cu_softmac_mac_detach_from_phy_cheesymac(void* handle);
+
+
+/*
+**
+** Declarations of internal functions ("private" members)
+**
+*/
 
 /*
  * Do cleanup when shutting down a CheesyMAC instance -- internal utility
@@ -743,10 +769,12 @@ cheesymac_make_procfs_entries(CHEESYMAC_INSTANCE* inst) {
     inst->my_procfs_dir->owner = THIS_MODULE;
 
     /*
-     * Make individual entries
-     * XXX make sure lengths of names are OK...
+     * Make individual entries. Stop when we get either a null string
+     * or an empty string for a name.
      */
-    for (i=0;i<sizeof(cheesymac_inst_proc_entries);i++) {
+    i = 0;
+    while (cheesymac_inst_proc_entries[i].name && cheesymac_inst_proc_entries[i].name[0]) {
+      //printk(KERN_ALERT "CheesyMAC: Creating proc entry %s, number %d\n",cheesymac_inst_proc_entries[i].name,i);
       curprocentry = create_proc_entry(cheesymac_inst_proc_entries[i].name,
 				       cheesymac_inst_proc_entries[i].mode,
 				       inst->my_procfs_dir);
@@ -774,6 +802,8 @@ cheesymac_make_procfs_entries(CHEESYMAC_INSTANCE* inst) {
        */
       curprocentry->read_proc = cheesymac_inst_read_proc;
       curprocentry->write_proc = cheesymac_inst_write_proc;
+
+      i++;
     }
   }
   return result;
@@ -880,37 +910,37 @@ cheesymac_inst_read_proc(char *page, char **start, off_t off,
     switch (procdata->entryid) {
     case CHEESYMAC_INST_PROC_TXBITRATE:
       spin_lock(&(inst->mac_busy));
-      intval = inst->deferrx;
+      intval = inst->txbitrate;
       spin_unlock(&(inst->mac_busy));
-      result = snprintf(dest,count,"%d",intval);
+      result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
     case CHEESYMAC_INST_PROC_DEFERTX:
       spin_lock(&(inst->mac_busy));
       intval = inst->defertx;
       spin_unlock(&(inst->mac_busy));
-      result = snprintf(dest,count,"%d",intval);
+      result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
     case CHEESYMAC_INST_PROC_DEFERTXDONE:
       spin_lock(&(inst->mac_busy));
       intval = inst->defertxdone;
       spin_unlock(&(inst->mac_busy));
-      result = snprintf(dest,count,"%d",intval);
+      result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
     case CHEESYMAC_INST_PROC_DEFERRX:
       spin_lock(&(inst->mac_busy));
       intval = inst->deferrx;
       spin_unlock(&(inst->mac_busy));
-      result = snprintf(dest,count,"%d",intval);
+      result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
     case CHEESYMAC_INST_PROC_MAXINFLIGHT:
       spin_lock(&(inst->mac_busy));
       intval = inst->maxinflight;
       spin_unlock(&(inst->mac_busy));
-      result = snprintf(dest,count,"%d",intval);
+      result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
 
@@ -933,26 +963,23 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
   CHEESYMAC_INST_PROC_DATA* procdata = data;
   if (procdata && procdata->inst) {
     CHEESYMAC_INSTANCE* inst = procdata->inst;
-    char kdata[256];
+    static const int maxkdatalen = 256;
+    char kdata[maxkdatalen];
     char* endp = 0;
     long intval = 0;
 
     /*
      * Drag the data over into kernel land
      */
-    if (255 < count) {
-      copy_from_user(kdata,buffer,255);
+    if (maxkdatalen <= count) {
+      copy_from_user(kdata,buffer,(maxkdatalen-1));
+      kdata[maxkdatalen-1] = 0;
+      result = (maxkdatalen-1);
     }
     else {
       copy_from_user(kdata,buffer,count);
+      result = count;
     }
-    /*
-     * Working with the assumption that we're supposed to
-     * be getting text data we cap the end of the string
-     * with a null terminator. This may not be true for
-     * everyone, feel free to alter this as it suits your needs.
-     */
-    kdata[255] = 0;
 
     switch (procdata->entryid) {
     case CHEESYMAC_INST_PROC_TXBITRATE:
@@ -990,6 +1017,10 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       break;
     }
   }
+  else {
+    result = count;
+  }
+
   return result;
 }
 
@@ -1095,6 +1126,9 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst) {
   return result;
 }
 
+/*
+ * Get the default parameters used to initialize new CheesyMAC instances
+ */
 void
 cu_softmac_cheesymac_get_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
   if (params) {
@@ -1111,6 +1145,9 @@ cu_softmac_cheesymac_get_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params)
   }
 }
 
+/*
+ * Set the default parameters used to initialize new CheesyMAC instances
+ */
 void
 cu_softmac_cheesymac_set_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
   if (params) {
@@ -1127,6 +1164,9 @@ cu_softmac_cheesymac_set_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params)
   }
 }
 
+/*
+ * Get the parameters of a specific CheesyMAC instance
+ */
 void
 cu_softmac_cheesymac_get_instance_params(void* macpriv,
 					 CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
@@ -1145,6 +1185,9 @@ cu_softmac_cheesymac_get_instance_params(void* macpriv,
   }
 }
 
+/*
+ * Set the parameters of a specific CheesyMAC instance
+ */
 void
 cu_softmac_cheesymac_set_instance_params(void* macpriv,
 					 CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
