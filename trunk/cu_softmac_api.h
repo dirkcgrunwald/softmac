@@ -26,6 +26,13 @@
 #ifndef _CU_SOFTMAC_API_H
 #define _CU_SOFTMAC_API_H
 
+/** @file cu_softmac_api.h
+ * @brief The main SoftMAC header file.
+ *
+ * This file includes definitions for the functions, types, and constants
+ * used by MAC and PHY layers in the SoftMAC system.
+ */
+
 /*
 **
 **
@@ -35,48 +42,68 @@
  */
 
 
-/*
- * Handle used by the specific PHY layer for its internal data
+/**
+ * @brief Handle used by the specific PHY layer for its internal data
  */
 typedef void* CU_SOFTMAC_PHY_HANDLE;
 
-/*
- * Forward declaration of the struct containing MAC layer information
+/**
+ * @brief Forward declaration of the struct containing MAC layer information
  */
 struct CU_SOFTMAC_MACLAYER_INFO_t;
 
 
-/*
- * Attach a MAC implementation to the softmac layer
+/**
+ * @brief Attach a MAC implementation to the softmac layer
  */
 typedef void (*CU_SOFTMAC_PHY_ATTACH_MAC_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
 
-/*
+/**
+ * @brief Notify the PHY layer that the MAC layer is detaching
+ *
  * Tell the softmac PHY that we are leaving the building. The semantics
  * of this call are such that *after* it returns the SoftMAC PHY won't
  * make any new calls into the MAC layer.
  */
 typedef void (*CU_SOFTMAC_PHY_DETACH_MAC_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv);
 
-/*
- * Get/set the softmac time clock value
+/**
+ * @brief Get the softmac time clock value
+ *
+ * This function is grouped with the PHY layer, even though it may
+ * appear to be more of an OS-related function. However, some PHY layers
+ * may have their own high-precision clocks that the MAC layer should
+ * be using. For example, the Atheros PHY layer has such a clock.
  */
 typedef u_int64_t (*CU_SOFTMAC_PHY_GET_TIME_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh);
 typedef void (*CU_SOFTMAC_PHY_SET_TIME_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t time);
 
-/*
- * Request that the "work" method be called ASAP
+/**
+ * @brief Request that the "work" method be called ASAP
  */
 typedef void (*CU_SOFTMAC_PHY_SCHEDULE_WORK_ASAP_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh);
 
-/*
- * Alloc/free sk_buff for a packet
+/**
+ * @brief Allocate an sk_buff for a packet
+ *
+ * This function allocates an sk_buff with sufficient space to hold <i> datalen
+ * </i> bytes. This also includes sufficient headroom for whatever additional
+ * headers the PHY layer may need to add as well as handling any special
+ * alignment or location requirements for efficient transfer to hardware.
+ * For example, the Atheros PHY layer requires five extra bytes at the
+ * beginning of each packet to ensure data integrity and
+ * cache-line alignment to ensure speedy DMA transfers.
  */
 typedef struct sk_buff* (*CU_SOFTMAC_PHY_ALLOC_SKB_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,int datalen);
+
+/**
+ * @brief Free an sk_buff (packet) either allocated by a call to
+ * CU_SOFTMAC_PHY_ALLOC_SKB_FUNC or passed in from the PHY layer.
+ */
 typedef void (*CU_SOFTMAC_PHY_FREE_SKB_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff*);
 
-/*
- * Errors that might be returned from the send packet procedures
+/**
+ * @brief Errors that might be returned from the send packet procedures
  */
 enum {
   CU_SOFTMAC_PHY_SENDPACKET_OK = 0,
@@ -85,51 +112,76 @@ enum {
   CU_SOFTMAC_PHY_SENDPACKET_ERR_NOBUFFERS = -1002,
 };
 
-/*
- * Send a packet, only permitting max_packets_inflight to be pending
+/**
+ * @brief Send a packet, only permitting max_packets_inflight to be pending
  */
 typedef int (*CU_SOFTMAC_PHY_SENDPACKET_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb);
 
 /*
- * Send a packet, only permitting max_packets_inflight to be pending.
- * Do NOT free the sk_buff upon failure. This allows callers to do things
+ * @brief Send a packet, only permitting max_packets_inflight to be pending,
+ * do NOT free the sk_buff upon failure.
+ *
+ * This allows callers to do things
  * like requeue a packet if they care to make another attempt to send the
  * packet that failed to go out.
  */
 typedef int (*CU_SOFTMAC_PHY_SENDPACKET_KEEPSKBONFAIL_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb);
 
-/*
- * Take an ethernet-encapsulated packet and send it up the operating
+/**
+ * @brief Take an ethernet-encapsulated packet and send it up the operating
  * system network protocol stack for this interface.
- * XXX eventual goal would be to allow a MAC layer to create
+ *
+ * XXX eventual goal is to allow a MAC layer to create
  * multiple network interfaces -- there's an implicit single
- * network interface associated with each phy layer right now
- * due to the way the Atheros softmac phy works.
+ * network interface associated with each PHY layer right now
+ * due to the way the Atheros SoftMAC PHY works.
  */
 typedef void (*CU_SOFTMAC_PHY_NETIF_RX_ETHER_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb);
 
-/*
- * Ask the phy layer how long (in microseconds) it will take for this
- * packet to be transmitted, not including any initial tx latency
+/**
+ * @brief Ask the phy layer how long (in microseconds) it will take for this
+ * packet to be transmitted, not including any initial transmit latency.
  */
 typedef u_int32_t (*CU_SOFTMAC_PHY_GET_DURATION_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb);
 
-/*
- * Ask the phy layer how much "lead time" there is between a request
+/**
+ * @brief Ask the phy layer how much "lead time" there is between a request
  * to send a packet and the time it hits the air.
  */
 typedef u_int32_t (*CU_SOFTMAC_PHY_GET_TXLATENCY_FUNC)(CU_SOFTMAC_PHY_HANDLE nfh);
 
-/*
- * XXX add version id to this struct?
+/**
+ * @brief Functions/variables exported by PHY layer.
  */
 typedef struct {
+  /**
+   * @brief Attach a MAC layer to the PHY layer
+   */
   CU_SOFTMAC_PHY_ATTACH_MAC_FUNC cu_softmac_attach_mac;
+  /**
+   * @brief Detach a MAC layer from the PHY layer
+   */
   CU_SOFTMAC_PHY_DETACH_MAC_FUNC cu_softmac_detach_mac;
+  /**
+   * @brief Get current time
+   */
   CU_SOFTMAC_PHY_GET_TIME_FUNC cu_softmac_get_time;
+  /**
+   * @brief Set current time
+   */
   CU_SOFTMAC_PHY_SET_TIME_FUNC cu_softmac_set_time;
+  /**
+   * @brief Schedule the MAC layer <i>work</i> callback to be run
+   * as soon as possible.
+   */
   CU_SOFTMAC_PHY_SCHEDULE_WORK_ASAP_FUNC cu_softmac_schedule_work_asap;
+  /**
+   * @brief Allocate space for a packet.
+   */
   CU_SOFTMAC_PHY_ALLOC_SKB_FUNC cu_softmac_alloc_skb;
+  /**
+   * @brief Free a packet.
+   */
   CU_SOFTMAC_PHY_FREE_SKB_FUNC cu_softmac_free_skb;
   CU_SOFTMAC_PHY_SENDPACKET_FUNC cu_softmac_sendpacket;
   CU_SOFTMAC_PHY_SENDPACKET_KEEPSKBONFAIL_FUNC cu_softmac_sendpacket_keepskbonfail;
@@ -154,6 +206,11 @@ typedef struct {
 **
  */
 
+/**
+ * @brief Notify the MAC layer that a packet-related event has occured.
+ *
+ * Multiple functions implemented by the PHY layer are of this type.
+ */
 typedef int (*CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC)(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop);
 typedef int (*CU_SOFTMAC_MAC_NOTIFY_FUNC)(CU_SOFTMAC_PHY_HANDLE,void*,int intop);
 typedef int (*CU_SOFTMAC_MAC_PHY_FUNC)(void*,CU_SOFTMAC_PHYLAYER_INFO*);
@@ -161,36 +218,45 @@ typedef int (*CU_SOFTMAC_MAC_SIMPLE_FUNC)(void*);
 typedef int (*CU_SOFTMAC_MAC_INT_FUNC)(void*,int);
 typedef int (*CU_SOFTMAC_MAC_PHY_INT_FUNC)(void*,CU_SOFTMAC_PHYLAYER_INFO*,int);
 
-/*
- * Status codes returned by the MAC layer when receiving
+/**
+ * @brief Status codes returned by the MAC layer when receiving
  * a notification from the SoftMAC PHY
  */
 enum {
-  /*
-   * Finished running, all is well
+  /**
+   * @brief Finished running, all is well
    */
   CU_SOFTMAC_MAC_NOTIFY_OK = 0,
-  /*
-   * Finished for now, but schedule task to run again ASAP
+  /**
+   * @brief Finished for now, but schedule task to run again ASAP
    */
   CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN = 1,
-  /*
-   * The MAC layer is busy and cannot take delivery of a packet.
+  /**
+   * @brief The MAC layer is busy and cannot take delivery of a packet.
    * The PHY layer should free the packet and continue.
    */
   CU_SOFTMAC_MAC_NOTIFY_BUSY = 2,
-  /*
-   * The MAC layer is hosed. Free the packet and continue.
+  /**
+   * @brief The MAC layer is hosed. Free the packet and continue.
    */
   CU_SOFTMAC_MAC_NOTIFY_HOSED = 3,
 };
 
-/*
- * XXX add version id to this struct?
+/**
+ * @brief Functions/data exported by a MAC layer implementation.
  */
 typedef struct CU_SOFTMAC_MACLAYER_INFO_t {
+  /**
+   * @brief Called when an ethernet-encapsulated packet is ready to transmit.
+   */
   CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC cu_softmac_mac_packet_tx;
+  /**
+   * @brief Called when transmission of a packet is complete.
+   */
   CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC cu_softmac_mac_packet_tx_done;
+  /**
+   * @brief Called upon receipt of a packet.
+   */
   CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC cu_softmac_mac_packet_rx;
   CU_SOFTMAC_MAC_NOTIFY_FUNC cu_softmac_mac_work;
   CU_SOFTMAC_MAC_NOTIFY_FUNC cu_softmac_mac_detach;
