@@ -1,8 +1,35 @@
-/*
- * softmac_cheesymac.c
- * A "null" sample MAC layer for the CU SoftMAC toolkit
- * This just runs a very simple "ethernet over wireless" protocol 
+/*****************************************************************************
+ *  Copyright 2005, Univerity of Colorado at Boulder.                        *
+ *                                                                           *
+ *                        All Rights Reserved                                *
+ *                                                                           *
+ *  Permission to use, copy, modify, and distribute this software and its    *
+ *  documentation for any purpose other than its incorporation into a        *
+ *  commercial product is hereby granted without fee, provided that the      *
+ *  above copyright notice appear in all copies and that both that           *
+ *  copyright notice and this permission notice appear in supporting         *
+ *  documentation, and that the name of the University not be used in        *
+ *  advertising or publicity pertaining to distribution of the software      *
+ *  without specific, written prior permission.                              *
+ *                                                                           *
+ *  UNIVERSITY OF COLORADO DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS      *
+ *  SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND        *
+ *  FITNESS FOR ANY PARTICULAR PURPOSE.  IN NO EVENT SHALL THE UNIVERSITY    *
+ *  OF COLORADO BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL         *
+ *  DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA       *
+ *  OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER        *
+ *  TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR         *
+ *  PERFORMANCE OF THIS SOFTWARE.                                            *
+ *                                                                           * 
+ ****************************************************************************/
+
+
+/**
+ * @file softmac_cheesymac.c
+ * @brief CheesyMAC: an example of an "Alohaesque" wireless MAC constructed
+ * using the SoftMAC framework.
  */
+
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
@@ -27,40 +54,78 @@ MODULE_AUTHOR("Michael Neufeld");
 */
 
 
-/*
- *
+/**
+ * @brief Some global constants
  */
 enum {
+  /**
+   * @brief Maximum length of a proc filesystem entry
+   */
   CHEESYMAC_PROCDIRNAME_LEN = 64,
 };
 
-/*
- * This is the structure containing all of the state information
+/**
+ * @brief This is the structure containing all of the state information
  * required for each CheesyMAC instance.
  */
 typedef struct CHEESYMAC_INSTANCE_t {
+  /**
+   * @brief Use a Linux kernel linked list to keep track of all instances
+   */
   struct list_head list;
+
+  /**
+   * @brief Lock access to MAC when altering basic parameters.
+   */
   spinlock_t mac_busy;
+
+  /**
+   * @brief Keep a handle to the currently attached PHY layer.
+   */
   CU_SOFTMAC_PHYLAYER_INFO myphy;
+
+  /**
+   * @brief Track whether or not the MAC layer is currently attached
+   * to a PHY layer.
+   */
   int attached_to_phy;
-  /*
-   * We keep a unique ID for each instance we create in order to
+
+  /**
+   * @brief We keep a unique ID for each instance we create in order to
    * do things like create separate proc directories for the settings
    * on each one.
    */
   int instanceid;
 
-  /*
-   * Keep a handle to the root procfs directory for this instance
+  /**
+   * @brief Keep a handle to the root procfs directory for this instance
    */
   struct proc_dir_entry* my_procfs_root;
+
+  /**
+   * @brief The name of our proc filesystem directory
+   */
   char procdirname[CHEESYMAC_PROCDIRNAME_LEN];
+
+  /**
+   * @brief The proc directory entry structure corresponding to our
+   * proc filesystem directory.
+   */
   struct proc_dir_entry* my_procfs_dir;
+
+  /**
+   * @brief Track all of the proc filesystem entries allocated for
+   * this CheesyMAC instance.
+   */
   struct list_head my_procfs_data;
 
   /*
    * Some parameters determining basic phy properties,
    * behavior w.r.t. top half/bottom half processing
+   */
+
+  /**
+   * @brief Transmit bitrate encoding to use.
    */
   unsigned char txbitrate;
   int defertx;
@@ -71,6 +136,11 @@ typedef struct CHEESYMAC_INSTANCE_t {
   /*
    * The cheesymac uses Linux sk_buff queues when it needs
    * to keep packets around for deferred handling.
+   */
+
+  /**
+   * @brief A Linux kernel sk_buff packet queue containing packets
+   * whose transmission has been deferred.
    */
   struct sk_buff_head tx_skbqueue;
   struct sk_buff_head txdone_skbqueue;
