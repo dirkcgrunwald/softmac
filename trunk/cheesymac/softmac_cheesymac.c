@@ -211,8 +211,8 @@ static const CHEESYMAC_INST_PROC_ENTRY cheesymac_inst_proc_entries[] = {
   },
 };
 
-/*
- * An instance of this data structure is created for each proc
+/**
+ * @brief An instance of this data structure is created for each proc
  * filesystem entry and placed into a linked list associated
  * with each instance. This allows us to handle proc filesystem
  * read/write requests.
@@ -232,16 +232,17 @@ typedef struct {
 **
 */
 
-/*
- * Notify the MAC layer that it is being removed from the PHY -- exported
- * via pointer as "cu_softmac_detach" to the SoftMAC PHY
+/**
+ * @brief Notify the MAC layer that it is being removed from the PHY.
+ * Exported via pointer as "cu_softmac_detach" to the SoftMAC PHY,
+ * of type CU_SOFTMAC_PHY_DETACH_MAC_FUNC
  */
 static int
 cu_softmac_mac_detach_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,void* mydata,int intop);
 
-/*
- * Notify the MAC layer that it is time to do some work -- exported
- * via pointer as "cu_softmac_work" to the SoftMAC PHY
+/**
+ * @brief Notify the MAC layer that it is time to do some work. Exported
+ * via pointer as "cu_softmac_work" to the SoftMAC PHY.
  */
 static int
 cu_softmac_mac_work_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
@@ -257,9 +258,9 @@ cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 			       struct sk_buff* packet,
 			       int intop);
 
-/*
- * Notify the MAC layer that a packet transmit has completed -- exported
- * via pointer as "cu_softmac_packet_tx_done" to the SoftMAC PHY
+/**
+ * @brief Notify the MAC layer that a packet transmit has completed.
+ * Exported via pointer as "cu_softmac_packet_tx_done" to the SoftMAC PHY.
  */
 static int
 cu_softmac_mac_packet_tx_done_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
@@ -267,25 +268,25 @@ cu_softmac_mac_packet_tx_done_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 				    struct sk_buff* packet,
 				    int intop);
 
-/*
- * Notify the MAC layer that an ethernet-encapsulated packet
- * has been received from up the protocol stack -- exported
- * via pointer as "cu_softmac_packet_tx" to the SoftMAC PHY
+/** 
+ * @brief Notify the MAC layer that an ethernet-encapsulated packet
+ * has been received from up the protocol stack. Exported
+ * via pointer as "cu_softmac_packet_tx".
  */
 static int
 cu_softmac_mac_packet_tx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 				   void* mydata,
 				   struct sk_buff* packet, int intop);
 
-/*
- * Tell the MAC layer to attach to the specified PHY layer
+/**
+ * @brief Tell the MAC layer to attach to the specified PHY layer.
  */
 static int
 cu_softmac_mac_attach_to_phy_cheesymac(void* handle,
 				       CU_SOFTMAC_PHYLAYER_INFO* phyinfo);
 
-/*
- * Tell the MAC layer to detach from the specified PHY layer
+/**
+ * @brief Tell the MAC layer to detach from the specified PHY layer.
  */
 static int
 cu_softmac_mac_detach_from_phy_cheesymac(void* handle);
@@ -297,14 +298,16 @@ cu_softmac_mac_detach_from_phy_cheesymac(void* handle);
 **
 */
 
-/*
- * Do cleanup when shutting down a CheesyMAC instance -- internal utility
+/**
+ * @brief Do cleanup when shutting down a CheesyMAC instance --
+ * internal utility
  */
 static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst);
 
 
 /*
- * Do initialization when creating a CheesyMAC instance -- internal utility
+ * @brief Do initialization when creating a CheesyMAC instance --
+ * internal utility
  */
 static int
 cheesymac_setup_instance(CHEESYMAC_INSTANCE* inst,
@@ -324,8 +327,8 @@ static int cheesymac_inst_write_proc(struct file *file,
 **
 */
 
-/*
- * Initial values for global MAC default parameter values.
+/**
+ * @brief Initial values for global MAC default parameter values.
  * Can override these upon module load.
  */
 enum {
@@ -335,32 +338,35 @@ enum {
   CHEESYMAC_DEFAULT_MAXINFLIGHT = 256,
   CHEESYMAC_DEFAULT_DEFERALLRX = 0,
   CHEESYMAC_DEFAULT_DEFERALLTXDONE = 0,
-
+  CHEESYMAC_DEFAULT_TXBITRATE = 2,
 };
 
-/*
- * Keep a reference to the head of our linked list of instances
+/**
+ * @brief Keep a reference to the head of our linked list of instances.
  */
 static LIST_HEAD(cheesymac_instance_list);
 
 
-/*
- * Some operations, i.e. getting/setting the next instance ID
- * and accessing default parameters, should be performed
- * atomically.
+/**
+ * @brief Some operations, e.g. getting/setting the next instance ID
+ * and accessing parameters, should be performed "atomically."
  */
 static spinlock_t cheesymac_global_lock = SPIN_LOCK_UNLOCKED;
 
-/*
- * First instance ID to use is 1
+/**
+ * @brief First instance ID to use is 1
  */
 
 static int cheesymac_next_instanceid = 1;
-/*
- * Default to 1 Mb/s
- */
-static int cheesymac_defaultbitrate = 2;
 
+/**
+ * @brief Bitrate encoding to use when transmitting packets.
+ */
+static int cheesymac_txbitrate = CHEESYMAC_DEFAULT_TXBITRATE;
+
+/**
+ * @brief Whether or not to defer handling of packet transmission.
+ */
 static int cheesymac_defertx = CHEESYMAC_DEFAULT_DEFERTX;
 static int cheesymac_defertxdone = CHEESYMAC_DEFAULT_DEFERTXDONE;
 static int cheesymac_deferrx = CHEESYMAC_DEFAULT_DEFERRX;
@@ -399,6 +405,9 @@ module_param(cheesymac_deferrx, int, 0644);
 MODULE_PARM_DESC(cheesymac_deferrx, "Queue received packets and defer handling to tasklet");
 module_param(cheesymac_maxinflight, int, 0644);
 MODULE_PARM_DESC(cheesymac_maxinflight, "Limit the number of packets allowed to be in the pipeline for transmission");
+
+module_param(cheesymac_txbitrate, int, 0644);
+MODULE_PARM_DESC(cheesymac_txbitrate, "Default bitrate to use when transmitting packets");
 
 module_param(cheesymac_procfsroot, charp, 0444);
 MODULE_PARM_DESC(cheesymac_procfsroot, "Subdirectory in procfs to use for cheesymac parameters/statistics");
@@ -930,7 +939,7 @@ static int cheesymac_setup_instance(CHEESYMAC_INSTANCE* newinst,
   spin_lock(&cheesymac_global_lock);
   newinst->instanceid = cheesymac_next_instanceid;
   cheesymac_next_instanceid++;
-  newinst->txbitrate = cheesymac_defaultbitrate;
+  newinst->txbitrate = cheesymac_txbitrate;
   newinst->defertx = cheesymac_defertx;
   newinst->defertxdone = cheesymac_defertxdone;
   newinst->deferrx = cheesymac_deferrx;
@@ -1203,7 +1212,7 @@ void
 cu_softmac_cheesymac_get_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
   if (params) {
     spin_lock(&cheesymac_global_lock);
-    params->txbitrate = cheesymac_defaultbitrate;
+    params->txbitrate = cheesymac_txbitrate;
     params->defertx = cheesymac_defertx;
     params->defertxdone = cheesymac_defertxdone;
     params->deferrx = cheesymac_deferrx;
@@ -1222,7 +1231,7 @@ void
 cu_softmac_cheesymac_set_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
   if (params) {
     spin_lock(&cheesymac_global_lock);
-    cheesymac_defaultbitrate = params->txbitrate;
+    cheesymac_txbitrate = params->txbitrate;
     cheesymac_defertx = params->defertx;
     cheesymac_defertxdone = params->defertxdone;
     cheesymac_deferrx = params->deferrx;
