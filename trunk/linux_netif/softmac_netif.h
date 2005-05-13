@@ -40,7 +40,8 @@ typedef int (*CU_SOFTMAC_MAC_NETIF_TX_FUNC)(void*,struct sk_buff* packet);
 CU_SOFTMAC_NETIF_HANDLE
 cu_softmac_netif_create_eth(char* name,
 			    char* macaddr,
-			    CU_SOFTMAC_MAC_NETIF_TX_FUNC txfunc);
+			    CU_SOFTMAC_MAC_NETIF_TX_FUNC txfunc,
+			    void* txfunc_priv);
 
 /*
  * Destroy a previously created ethernet interface
@@ -51,15 +52,18 @@ cu_softmac_netif_destroy(CU_SOFTMAC_NETIF_HANDLE nif);
 /*
  * A client should call this function when it has a packet ready
  * to send up to higher layers of the network stack.
+ * XXX this assumes ethernet-encapsulated packets -- should
+ * make things more general at some point.
  */
 int
-cu_softmac_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,struct sk_buff* packet);
+cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,struct sk_buff* packet);
 
 /*
  * Set the function to call when a packet is ready for transmit
  */
 int
 cu_softmac_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
-			   CU_SOFTMAC_MAC_NETIF_TX_FUNC txfunc);
+			   CU_SOFTMAC_MAC_NETIF_TX_FUNC txfunc,
+			   void* txfunc_priv);
 
 #endif
