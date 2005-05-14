@@ -125,16 +125,27 @@ void
 cu_softmac_netif_destroy(CU_SOFTMAC_NETIF_HANDLE nif) {
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
   if (inst) {
-    // XXX figure out locking...
-    if (inst->devregistered) {
-      unregister_netdevice(&(inst->netdev));
-      inst->devregistered = 0;
-    }
+    list_del(&(inst->list));
+    softmac_netif_cleanup_instance(inst);
+    kfree(inst);
+    inst = 0;
+    nif = 0;
   }
 }
 
 static void
 softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
+  if (inst) {
+    // XXX figure out locking...
+    spin_lock(&(inst->devlock));
+    txfunc = 0;
+    txfunc_priv = 0;
+    if (inst->devregistered) {
+      inst->devregistered = 0;
+      unregister_netdevice(&(inst->netdev));
+    }
+    spin_unlock(&(inst->devlock));
+  }
 }
 
 /*
@@ -246,13 +257,18 @@ static int softmac_netif_dev_stop(struct net_device *dev) {
     CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
     /*
      * Mark the device as "closed"
+     * We only acquire the device lock if the device
+     * is still marked as "registered". We should
+     * only get called as an "unregistered" device
+     * if we're in the process of being shut down
+     * and have already acquired the spinlock.
      */
-    spin_lock(&(inst->devlock));
+    if (inst->devregistered) spin_lock(&(inst->devlock));
     if (inst->devopen) {
       netif_stop_queue(dev);
       inst->devopen = 0;
     }
-    spin_unlock(&(inst->devlock));
+    if (inst->devregistered) spin_unlock(&(inst->devlock));
   }
   return result;
 }
@@ -271,7 +287,7 @@ static int __init softmac_netif_init(void)
 static void __exit softmac_netif_exit(void)
 {
   printk(KERN_ALERT "Unloading SoftMAC netif module\n");
-  if (!list_empty(&cheesymac_instance_list)) {
+  if (!list_empty(&softmac_netif_instance_list)) {
     printk(KERN_DEBUG "SoftMAC netif: Deleting instances\n");
     CU_SOFTMAC_NETIF_INSTANCE* netif_instance = 0;
     struct list_head* tmp = 0;
@@ -287,13 +303,19 @@ static void __exit softmac_netif_exit(void)
       list_del(p);
       softmac_netif_cleanup_instance(netif_instance);
       kfree(netif_instance);
+      netif_instance = 0;
     }
   }
   else {
-    printk(KERN_DEBUG "CheesyMAC: No instances found\n");
+    printk(KERN_DEBUG "SoftMAC netif: No instances found\n");
   }
 
 }
+
+EXPORT_SYMBOL(cu_softmac_netif_create_eth);
+EXPORT_SYMBOL(cu_softmac_netif_destroy);
+EXPORT_SYMBOL(cu_softmac_netif_rx_packet);
+EXPORT_SYMBOL(cu_softmac_set_tx_callback);
 
 module_init(softmac_netif_init);
 module_exit(softmac_netif_exit);
