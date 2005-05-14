@@ -44,6 +44,7 @@ typedef struct CU_SOFTMAC_NETIF_INSTANCE_t {
   struct list_head list;
   spinlock_t devlock;
   int devopen;
+  int devregistered;
   CU_SOFTMAC_NETIF_TX_FUNC txfunc;
   void* txfunc_priv;
   struct net_device netdev;
@@ -84,19 +85,26 @@ softmac_netif_init_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
  */
 CU_SOFTMAC_NETIF_HANDLE
 cu_softmac_netif_create_eth(char* name,
-			    char* macaddr,
+			    unsigned char* macaddr,
 			    CU_SOFTMAC_MAC_NETIF_TX_FUNC txfunc,
 			    void* txfunc_priv) {
-  CU_SOFTMAC_NETIF_HANDLE newinst = 0;
+  CU_SOFTMAC_NETIF_INSTANCE* newinst = 0;
+  if (!name || !macaddr) {
+    return 0;
+  }
+
   newinst = kmalloc(sizeof(CU_SOFTMAC_NETIF_INSTANCE),GFP_ATOMIC);
   if (newinst) {
     struct net_device* dev = &(newinst->netdev);
     softmac_netif_init_instance(newinst);
+    list_add_tail(&newinst->list,&softmac_netif_instance_list);
     /*
      * Fire up the instance...
      */
     spin_lock(&(newinst->devlock));
     ether_setup(dev);
+    strncpy(dev->name,name,IFNAMSIZ);
+    memcpy(dev->dev_addr,macaddr,6);
     dev->priv = newinst;
     dev->open = softmac_netif_dev_open;
     dev->stop = softmac_netif_dev_stop;
@@ -105,6 +113,7 @@ cu_softmac_netif_create_eth(char* name,
     dev->watchdog_timeo = 5 * HZ;			/* XXX */
 
     register_netdev(&(newinst->netdev));
+    newinst->devregistered = 1;
   }
   return newinst;
 }
@@ -114,7 +123,13 @@ cu_softmac_netif_create_eth(char* name,
  */
 void
 cu_softmac_netif_destroy(CU_SOFTMAC_NETIF_HANDLE nif) {
-  if (nif) {
+  CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
+  if (inst) {
+    // XXX figure out locking...
+    if (inst->devregistered) {
+      unregister_netdevice(&(inst->netdev));
+      inst->devregistered = 0;
+    }
   }
 }
 
@@ -165,6 +180,14 @@ int
 cu_softmac_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
 			   CU_SOFTMAC_MAC_NETIF_TX_FUNC txfunc,
 			   void* txfunc_priv) {
+  CU_SOFTMAC_NETIF_INSTANCE* inst = nif;
+
+  if (inst) {
+    spin_lock(&(inst->devlock));
+    inst->txfunc = txfunc;
+    inst->txfunc_priv = txfunc_priv;
+    spin_unlock(&(inst->devlock));
+  }
 }
 
 /*
@@ -174,12 +197,21 @@ cu_softmac_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
 static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
 					     struct net_device* dev) {
   int txresult = 0;
-
-  CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
-  if (inst && inst->txfunc) {
-    spin_lock(&(inst->devlock));
-    txresult = (inst->txfunc)(inst->txfunc_priv,skb);
-    spin_unlock(&(inst->devlock));
+  if (dev && dev->priv) {
+    CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
+    if (inst->txfunc) {
+      spin_lock(&(inst->devlock));
+      txresult = (inst->txfunc)(inst->txfunc_priv,skb);
+      spin_unlock(&(inst->devlock));
+    }
+    else {
+      /*
+       * Just drop the packet on the floor if there's no callback set
+       */
+      dev_kfree_skb(skb);
+      skb = 0;
+      txresult = 0;
+    }
   }
   else {
     /*
@@ -192,28 +224,37 @@ static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
 }
 
 static int softmac_netif_dev_open(struct net_device *dev) {
-  CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
-  if (inst) {
+  int result = 0;
+  if (dev && dev->priv) {
+    CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
     /*
      * Mark the device as "open"
      */
     spin_lock(&(inst->devlock));
-    inst->devopen = 1;
+    if (!inst->devopen) {
+      netif_start_queue(dev);
+      inst->devopen = 1;
+    }
     spin_unlock(&(inst->devlock));
   }
+  return result;
 }
 
 static int softmac_netif_dev_stop(struct net_device *dev) {
-  CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
-  if (inst) {
+  int result = 0;
+  if (dev && dev->priv) {
+    CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
     /*
      * Mark the device as "closed"
      */
     spin_lock(&(inst->devlock));
-    netif_stop_queue(dev);
-    inst->devopen = 0;
+    if (inst->devopen) {
+      netif_stop_queue(dev);
+      inst->devopen = 0;
+    }
     spin_unlock(&(inst->devlock));
   }
+  return result;
 }
 
 static void softmac_netif_dev_tx_timeout(struct net_device *dev) {
