@@ -300,9 +300,7 @@ static void __exit softmac_netif_exit(void)
     list_for_each_safe(p,tmp,&softmac_netif_instance_list) {
       netif_instance = list_entry(p,CU_SOFTMAC_NETIF_INSTANCE,list);
       printk(KERN_DEBUG "SoftMAC netif: Detaching and destroying instance %p\n",netif_instance);
-      list_del(p);
-      softmac_netif_cleanup_instance(netif_instance);
-      kfree(netif_instance);
+      cu_softmac_netif_destroy(netif_instance);
       netif_instance = 0;
     }
   }
