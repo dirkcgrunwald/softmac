@@ -34,6 +34,11 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/stat.h>
+#include <linux/netdevice.h>
+#include <linux/etherdevice.h>
+#include <linux/if.h>
+#include <linux/if_arp.h>
+#include <linux/if_ether.h>
 #include "../cu_softmac_api.h"
 #include "softmac_netif.h"
 
@@ -86,7 +91,7 @@ softmac_netif_init_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
 CU_SOFTMAC_NETIF_HANDLE
 cu_softmac_netif_create_eth(char* name,
 			    unsigned char* macaddr,
-			    CU_SOFTMAC_MAC_NETIF_TX_FUNC txfunc,
+			    CU_SOFTMAC_NETIF_TX_FUNC txfunc,
 			    void* txfunc_priv) {
   CU_SOFTMAC_NETIF_INSTANCE* newinst = 0;
   if (!name || !macaddr) {
@@ -138,8 +143,8 @@ softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
   if (inst) {
     // XXX figure out locking...
     spin_lock(&(inst->devlock));
-    txfunc = 0;
-    txfunc_priv = 0;
+    inst->txfunc = 0;
+    inst->txfunc_priv = 0;
     if (inst->devregistered) {
       inst->devregistered = 0;
       unregister_netdevice(&(inst->netdev));
@@ -158,15 +163,15 @@ cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,
   int result = 0;
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
   
-  if (inst && inst->dev) {
-    struct net_device* dev = nif->dev;
+  if (inst) {
+    struct net_device* dev = &(inst->netdev);
 
     packet->dev = dev;
     packet->mac.raw = packet->data;
     /*
      * XXX this assumes ethernet packets -- make more generic!
      */
-    packet->nh.raw = packet->data + sizeof(struct ether_header);
+    //packet->nh.raw = packet->data + sizeof(struct ether_header);
     packet->protocol = eth_type_trans(packet,dev);
     spin_lock(&(inst->devlock));
     if (inst->devopen) {
@@ -187,9 +192,9 @@ cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,
 /*
  * Set the function to call when a packet is ready for transmit
  */
-int
+void
 cu_softmac_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
-			   CU_SOFTMAC_MAC_NETIF_TX_FUNC txfunc,
+			   CU_SOFTMAC_NETIF_TX_FUNC txfunc,
 			   void* txfunc_priv) {
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;
 

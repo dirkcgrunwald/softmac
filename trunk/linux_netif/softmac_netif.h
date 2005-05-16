@@ -32,15 +32,15 @@
  */
 
 typedef void* CU_SOFTMAC_NETIF_HANDLE;
-typedef int (*CU_SOFTMAC_MAC_NETIF_TX_FUNC)(void*,struct sk_buff* packet);
+typedef int (*CU_SOFTMAC_NETIF_TX_FUNC)(void*,struct sk_buff* packet);
 
 /*
  * This function creates an ethernet interface
  */
 CU_SOFTMAC_NETIF_HANDLE
 cu_softmac_netif_create_eth(char* name,
-			    char* macaddr,
-			    CU_SOFTMAC_MAC_NETIF_TX_FUNC txfunc,
+			    unsigned char* macaddr,
+			    CU_SOFTMAC_NETIF_TX_FUNC txfunc,
 			    void* txfunc_priv);
 
 /*
@@ -61,9 +61,9 @@ cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,struct sk_buff* packet);
 /*
  * Set the function to call when a packet is ready for transmit
  */
-int
+void
 cu_softmac_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
-			   CU_SOFTMAC_MAC_NETIF_TX_FUNC txfunc,
+			   CU_SOFTMAC_NETIF_TX_FUNC txfunc,
 			   void* txfunc_priv);
 
 #endif
