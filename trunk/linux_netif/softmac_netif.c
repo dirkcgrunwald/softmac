@@ -50,6 +50,7 @@ typedef struct CU_SOFTMAC_NETIF_INSTANCE_t {
   spinlock_t devlock;
   int devopen;
   int devregistered;
+  int devregpending;
   CU_SOFTMAC_NETIF_TX_FUNC txfunc;
   void* txfunc_priv;
   struct net_device netdev;
@@ -59,10 +60,16 @@ typedef struct CU_SOFTMAC_NETIF_INSTANCE_t {
  * @brief Keep a reference to the head of our linked list of instances.
  */
 static LIST_HEAD(softmac_netif_instance_list);
+static void netif_work_tasklet(unsigned long data);
+static DECLARE_TASKLET(softmac_netif_work_tq,netif_work_tasklet,0);
 
 static void softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst);
 static void softmac_netif_init_instance(CU_SOFTMAC_NETIF_INSTANCE* inst);
-
+static CU_SOFTMAC_NETIF_INSTANCE* netif_create_eth(char* name,
+						   unsigned char* macaddr,
+						   CU_SOFTMAC_NETIF_TX_FUNC txfunc,
+						   void* txfunc_priv,
+						   int defer);
 /*
  * netif "dev" functions
  */
@@ -71,6 +78,17 @@ static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
 					     struct net_device* dev);
 static int softmac_netif_dev_stop(struct net_device *dev);
 static void softmac_netif_dev_tx_timeout(struct net_device *dev);
+
+/*
+**
+** Module parameters
+**
+*/
+
+static int softmac_netif_test_on_load = 0;
+module_param(softmac_netif_test_on_load, int, S_IRUSR | S_IRGRP | S_IROTH);
+MODULE_PARM_DESC(softmac_netif_test_on_load,"Set to non-zero to have the netif module create a fake network interface on load");
+
 
 /*
  * Initialize a netif instance
@@ -85,24 +103,45 @@ softmac_netif_init_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
   }
 }
 
+static void
+netif_work_tasklet(unsigned long data) {
+  struct list_head* p = 0;
+  CU_SOFTMAC_NETIF_INSTANCE* netif_instance = 0;
+
+  list_for_each(p,&softmac_netif_instance_list) {
+    netif_instance = list_entry(p,CU_SOFTMAC_NETIF_INSTANCE,list);
+    spin_lock(&(netif_instance->devlock));
+    if (netif_instance->devregpending && !netif_instance->devregistered) {
+      netif_instance->devregpending = 0;
+      spin_unlock(&(netif_instance->devlock));
+      register_netdev(&(netif_instance->netdev));
+      spin_lock(&(netif_instance->devlock));
+      netif_instance->devregistered = 1;
+      spin_unlock(&(netif_instance->devlock));
+    }
+    else {
+      spin_unlock(&(netif_instance->devlock));
+    }
+  }
+}
+
 /*
  * This function creates an ethernet interface
  */
-CU_SOFTMAC_NETIF_HANDLE
-cu_softmac_netif_create_eth(char* name,
-			    unsigned char* macaddr,
-			    CU_SOFTMAC_NETIF_TX_FUNC txfunc,
-			    void* txfunc_priv) {
+static CU_SOFTMAC_NETIF_INSTANCE*
+netif_create_eth(char* name,unsigned char* macaddr,
+		 CU_SOFTMAC_NETIF_TX_FUNC txfunc,void* txfunc_priv,int defer) {
   CU_SOFTMAC_NETIF_INSTANCE* newinst = 0;
   if (!name || !macaddr) {
     return 0;
   }
-
+  
   newinst = kmalloc(sizeof(CU_SOFTMAC_NETIF_INSTANCE),GFP_ATOMIC);
   if (newinst) {
     struct net_device* dev = &(newinst->netdev);
     softmac_netif_init_instance(newinst);
     list_add_tail(&newinst->list,&softmac_netif_instance_list);
+
     /*
      * Fire up the instance...
      */
@@ -116,12 +155,31 @@ cu_softmac_netif_create_eth(char* name,
     dev->hard_start_xmit = softmac_netif_dev_hard_start_xmit;
     dev->tx_timeout = softmac_netif_dev_tx_timeout;
     dev->watchdog_timeo = 5 * HZ;			/* XXX */
-
-    register_netdev(&(newinst->netdev));
-    newinst->devregistered = 1;
+    spin_unlock(&(newinst->devlock));
+    if (defer) {
+      tasklet_schedule(&softmac_netif_work_tq);
+    }
+    else {
+      register_netdev(&(newinst->netdev));
+      spin_lock(&(newinst->devlock));
+      newinst->devregistered = 1;
+      spin_unlock(&(newinst->devlock));
+    }
   }
   return newinst;
 }
+
+/*
+ * This function creates an ethernet interface
+ */
+CU_SOFTMAC_NETIF_HANDLE
+cu_softmac_netif_create_eth(char* name,
+			    unsigned char* macaddr,
+			    CU_SOFTMAC_NETIF_TX_FUNC txfunc,
+			    void* txfunc_priv) {
+  return netif_create_eth(name,macaddr,txfunc,txfunc_priv,in_irq());
+}
+
 
 /*
  * Destroy a previously created network interface
@@ -213,6 +271,7 @@ cu_softmac_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
 static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
 					     struct net_device* dev) {
   int txresult = 0;
+  printk(KERN_DEBUG "SoftMAC netif: hard_start\n");
   if (dev && dev->priv) {
     CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
     if (inst->txfunc) {
@@ -241,12 +300,19 @@ static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
 
 static int softmac_netif_dev_open(struct net_device *dev) {
   int result = 0;
+  printk(KERN_DEBUG "SoftMAC netif: dev_open\n");
   if (dev && dev->priv) {
     CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
     /*
      * Mark the device as "open"
      */
     spin_lock(&(inst->devlock));
+    if (!inst->devregistered) {
+      /*
+       *  Someone is opening us -> we've been registered
+       */
+      inst->devregistered = 1;
+    }
     if (!inst->devopen) {
       netif_start_queue(dev);
       inst->devopen = 1;
@@ -258,6 +324,7 @@ static int softmac_netif_dev_open(struct net_device *dev) {
 
 static int softmac_netif_dev_stop(struct net_device *dev) {
   int result = 0;
+  printk(KERN_DEBUG "SoftMAC netif: dev_stop\n");
   if (dev && dev->priv) {
     CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
     /*
@@ -282,16 +349,23 @@ static void softmac_netif_dev_tx_timeout(struct net_device *dev) {
   printk(KERN_DEBUG "SoftMAC netif: dev_tx timeout!\n");
 }
 
-
+static int testtxfunc(void* priv,struct sk_buff* skb) {
+  printk(KERN_DEBUG "Got packet for transmit, length %d bytes\n",skb->len);
+  return 0;
+}
 static int __init softmac_netif_init(void)
 {
   printk(KERN_ALERT "Loading SoftMAC netif module\n");
+  if (softmac_netif_test_on_load) {
+    printk(KERN_ALERT "Creating test interface foo0\n");
+    netif_create_eth("foo0","\0\1\2\3\4\5",testtxfunc,0,1);
+  }
   return 0;
 }
 
 static void __exit softmac_netif_exit(void)
 {
-  printk(KERN_ALERT "Unloading SoftMAC netif module\n");
+  printk(KERN_DEBUG "Unloading SoftMAC netif module\n");
   if (!list_empty(&softmac_netif_instance_list)) {
     printk(KERN_DEBUG "SoftMAC netif: Deleting instances\n");
     CU_SOFTMAC_NETIF_INSTANCE* netif_instance = 0;
