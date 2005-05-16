@@ -252,12 +252,12 @@ cu_softmac_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
 static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
 					     struct net_device* dev) {
   int txresult = 0;
-  printk(KERN_DEBUG "SoftMAC netif: hard_start\n");
+  //printk(KERN_DEBUG "SoftMAC netif: hard_start\n");
   if (dev && dev->priv) {
     CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
-    printk(KERN_DEBUG "SoftMAC netif: hard_start -- got instance\n");
+    //printk(KERN_DEBUG "SoftMAC netif: hard_start -- got instance\n");
     if (inst->txfunc) {
-      printk(KERN_DEBUG "SoftMAC netif: hard_start -- got txfunction\n");
+      //printk(KERN_DEBUG "SoftMAC netif: hard_start -- got txfunction\n");
       spin_lock(&(inst->devlock));
       txresult = (inst->txfunc)(inst->txfunc_priv,skb);
       spin_unlock(&(inst->devlock));
@@ -266,7 +266,7 @@ static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
       /*
        * Just drop the packet on the floor if there's no callback set
        */
-      printk(KERN_DEBUG "SoftMAC netif: hard_start -- no txfunction set\n");
+      //printk(KERN_DEBUG "SoftMAC netif: hard_start -- no txfunction set\n");
       dev_kfree_skb(skb);
       skb = 0;
       txresult = 0;
@@ -331,6 +331,7 @@ static void softmac_netif_dev_tx_timeout(struct net_device *dev) {
 
 static int testtxfunc(void* priv,struct sk_buff* skb) {
   printk(KERN_DEBUG "Got packet for transmit, length %d bytes\n",skb->len);
+  dev_kfree_skb(skb);
   return 0;
 }
 static int __init softmac_netif_init(void)
