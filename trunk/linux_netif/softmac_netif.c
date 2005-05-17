@@ -133,7 +133,7 @@ netif_create_eth(char* name,unsigned char* macaddr,
     newinst->txfunc_priv = txfunc_priv;
     spin_unlock(&(newinst->devlock));
     printk(KERN_DEBUG "SoftMAC netif: create_eth registering netdev\n");
-    register_netdev(&(newinst->netdev));
+    register_netdevice(&(newinst->netdev));
     printk(KERN_DEBUG "SoftMAC netif: create_eth registered netdev\n");
     spin_lock(&(newinst->devlock));
     newinst->devregistered = 1;
