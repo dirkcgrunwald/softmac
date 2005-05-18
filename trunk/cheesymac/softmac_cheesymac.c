@@ -456,7 +456,7 @@ cheesymac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
      * we're using -- in Linux the packet transmission is
      * instigated by a softirq in the bottom half.
      */
-    int txresult = (inst->cu_softmac_mac_packet_tx)(inst,packet,0);
+    int txresult = cu_softmac_mac_packet_tx_cheesymac(inst->myphy.phyhandle,inst,packet,0);
     if (CU_SOFTMAC_MAC_TX_OK != txresult) {
       dev_kfree_skb(packet);
     }
@@ -497,13 +497,16 @@ static int __init softmac_cheesymac_init(void)
 	if (!(newmacinfo.cu_softmac_mac_attach_to_phy)(newmacinfo.mac_private,&athphyinfo)) {
 	  char ifnamebuf[64];
 	  int netid = cheesymac_next_instanceid - 1;
+	  CU_SOFTMAC_NETIF_HANDLE newnetif = 0;
+
 	  printk(KERN_DEBUG "CheesyMAC: Attached to PHY\n");
 	  /*
 	   * Now create our network interface and attach to it
 	   */
 	  snprintf(ifnamebuf,64,cheesymac_netiftemplate,netid);
-	  cu_softmac_netif_create_eth(ifnamebuf,0,cheesymac_netif_txhelper,newmacinfo.mac_private);
-	  
+	  newnetif = cu_softmac_netif_create_eth(ifnamebuf,0,cheesymac_netif_txhelper,newmacinfo.mac_private);
+	  (newmacinfo.cu_softmac_mac_set_unload_notify_func)(newmacinfo.mac_private,cu_softmac_netif_detach,newnetif);
+	  cu_softmac_netif_set_unload_callback(newnetif,func(CU_SOFTMAC_NETIF_HANDLE,void*),priv);
 	}
 	else {
 	  printk(KERN_ALERT "CheesyMAC: Unable to attach to PHY!\n");
