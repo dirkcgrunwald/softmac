@@ -88,5 +88,4 @@ cu_softmac_netif_set_unload_callback(CU_SOFTMAC_NETIF_HANDLE nif,
 				     CU_SOFTMAC_NETIF_SIMPLE_NOTIFY_FUNC unloadfunc,
 				     void* unloadfunc_priv);
 
-
 #endif

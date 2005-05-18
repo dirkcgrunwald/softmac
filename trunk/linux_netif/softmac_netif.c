@@ -73,7 +73,7 @@ static CU_SOFTMAC_NETIF_INSTANCE* netif_create_eth(char* name,
 						   unsigned char* macaddr,
 						   CU_SOFTMAC_NETIF_TX_FUNC txfunc,
 						   void* txfunc_priv);
-static void softmac_netif_unload_mac(void* priv);
+
 
 /*
  * netif "dev" functions
@@ -181,9 +181,6 @@ cu_softmac_netif_detach(CU_SOFTMAC_NETIF_HANDLE nif) {
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
   if (inst){
     spin_lock(&(inst->devlock));
-    if (inst->unloadfunc) {
-      (inst->unloadfunc)(nif,inst->unloadfunc_priv);
-    }
     inst->unloadfunc = 0;
     inst->unloadfunc_priv = 0;
     inst->txfunc = 0;
@@ -192,6 +189,19 @@ cu_softmac_netif_detach(CU_SOFTMAC_NETIF_HANDLE nif) {
   }
 }
 
+/*
+ * Detach the current client
+ */
+void
+cu_softmac_netif_set_unload_callback(CU_SOFTMAC_NETIF_HANDLE nif,CU_SOFTMAC_NETIF_SIMPLE_NOTIFY_FUNC unloadfunc,void* unloadpriv) {
+  CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
+  if (inst){
+    spin_lock(&(inst->devlock));
+    inst->unloadfunc = unloadfunc;
+    inst->unloadfunc_priv = unloadpriv;
+    spin_unlock(&(inst->devlock));
+  }
+}
 
 /*
  * Destroy a previously created network interface
@@ -382,26 +392,7 @@ static void softmac_netif_dev_tx_timeout(struct net_device *dev) {
   printk(KERN_DEBUG "SoftMAC netif: dev_tx timeout!\n");
 }
 
-/*
- * "unload" notification handler that connects to a softmac mac
- */
-static void
-softmac_netif_unload_mac(void* priv) {
-  CU_SOFTMAC_NETIF_INSTANCE* inst = priv;
-  int result = 0;
-  if (inst) {
-    spin_lock(&(inst->devlock));
-    inst->txfunc = 0;
-    inst->txfunc_priv = 0;
-    spin_unlock(&(inst->devlock));
-  }
-  else {
-    result = -1;
-  }
-  return result;
-}
-
-static int testtxfunc(void* priv,struct sk_buff* skb) {
+static int testtxfunc(CU_SOFTMAC_NETIF_HANDLE nif, void* priv,struct sk_buff* skb) {
   printk(KERN_DEBUG "Got packet for transmit, length %d bytes\n",skb->len);
   dev_kfree_skb(skb);
   return 0;
@@ -446,6 +437,8 @@ EXPORT_SYMBOL(cu_softmac_netif_create_eth);
 EXPORT_SYMBOL(cu_softmac_netif_destroy);
 EXPORT_SYMBOL(cu_softmac_netif_rx_packet);
 EXPORT_SYMBOL(cu_softmac_netif_set_tx_callback);
+EXPORT_SYMBOL(cu_softmac_netif_detach);
+EXPORT_SYMBOL(cu_softmac_netif_set_unload_callback);
 
 module_init(softmac_netif_init);
 module_exit(softmac_netif_exit);
