@@ -47,12 +47,18 @@ MODULE_AUTHOR("Michael Neufeld");
 
 typedef struct CU_SOFTMAC_NETIF_INSTANCE_t {
   struct list_head list;
+  /*
+   * XXX may want to transform this into reader/writer lock to
+   * permit greater parallelism, e.g. tx and rx at the same time
+   */
   spinlock_t devlock;
   int devopen;
   int devregistered;
   int devregpending;
   CU_SOFTMAC_NETIF_TX_FUNC txfunc;
   void* txfunc_priv;
+  CU_SOFTMAC_NETIF_SIMPLE_NOTIFY_FUNC unloadfunc;
+  void* unloadfunc_priv;
   struct net_device netdev;
 } CU_SOFTMAC_NETIF_INSTANCE;
 
@@ -67,6 +73,8 @@ static CU_SOFTMAC_NETIF_INSTANCE* netif_create_eth(char* name,
 						   unsigned char* macaddr,
 						   CU_SOFTMAC_NETIF_TX_FUNC txfunc,
 						   void* txfunc_priv);
+static void softmac_netif_unload_mac(void* priv);
+
 /*
  * netif "dev" functions
  */
@@ -113,8 +121,19 @@ netif_create_eth(char* name,unsigned char* macaddr,
   newinst = kmalloc(sizeof(CU_SOFTMAC_NETIF_INSTANCE),GFP_ATOMIC);
   if (newinst) {
     struct net_device* dev = &(newinst->netdev);
+    unsigned char randommacaddr[6];
+
     softmac_netif_init_instance(newinst);
     list_add_tail(&newinst->list,&softmac_netif_instance_list);
+    if (!macaddr) {
+      /*
+       * No MAC address passed in? Just make one up. Code
+       * liberated from the kernel tap/tun driver.
+       */
+      macaddr = randommacaddr;
+      *((u_int16_t *)macaddr) = htons(0x00FF);
+      get_random_bytes(macaddr + 2, 4);
+    }
 
     /*
      * Fire up the instance...
@@ -155,6 +174,26 @@ cu_softmac_netif_create_eth(char* name,
 
 
 /*
+ * Detach the current client
+ */
+void
+cu_softmac_netif_detach(CU_SOFTMAC_NETIF_HANDLE nif) {
+  CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
+  if (inst){
+    spin_lock(&(inst->devlock));
+    if (inst->unloadfunc) {
+      (inst->unloadfunc)(nif,inst->unloadfunc_priv);
+    }
+    inst->unloadfunc = 0;
+    inst->unloadfunc_priv = 0;
+    inst->txfunc = 0;
+    inst->txfunc_priv = 0;
+    spin_unlock(&(inst->devlock));
+  }
+}
+
+
+/*
  * Destroy a previously created network interface
  */
 void
@@ -178,6 +217,11 @@ softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
     printk(KERN_DEBUG "About to cleanup %p (%s) -- locking\n",inst,inst->netdev.name);
     spin_lock(&(inst->devlock));
     printk(KERN_DEBUG "About to cleanup %p (%s) -- got lock\n",inst,inst->netdev.name);
+    if (inst->unloadfunc) {
+      (inst->unloadfunc)(inst,inst->unloadfunc_priv);
+      inst->unloadfunc = 0;
+      inst->unloadfunc_priv = 0;
+    }
     inst->txfunc = 0;
     inst->txfunc_priv = 0;
     if (inst->devregistered) {
@@ -199,11 +243,21 @@ softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
 int
 cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,
 			   struct sk_buff* packet) {
-  int result = 0;
+  int result = CU_SOFTMAC_NETIF_RX_PACKET_OK;
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
   
   if (inst) {
     struct net_device* dev = &(inst->netdev);
+
+    /*
+     * We don't want to block in this case. Let the MAC layer
+     * decide to either queue the packet and try later or
+     * simply discard it and move on.
+     */
+    if (!spin_trylock(&(inst->devlock))) {
+      printk(KERN_DEBUG "SoftMAC netif: rx_packet -- netif busy!\n");
+      return CU_SOFTMAC_NETIF_RX_PACKET_BUSY;
+    }
 
     packet->dev = dev;
     packet->mac.raw = packet->data;
@@ -212,17 +266,16 @@ cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,
      */
     //packet->nh.raw = packet->data + sizeof(struct ether_header);
     packet->protocol = eth_type_trans(packet,dev);
-    spin_lock(&(inst->devlock));
     if (inst->devopen) {
       netif_rx(packet);
     }
     else {
-      result = -1;
+      result = CU_SOFTMAC_NETIF_RX_PACKET_ERROR;
     }
     spin_unlock(&(inst->devlock));
   }
   else {
-    result = -1;
+    result = CU_SOFTMAC_NETIF_RX_PACKET_ERROR;
   }
 
   return result;
@@ -232,7 +285,7 @@ cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,
  * Set the function to call when a packet is ready for transmit
  */
 void
-cu_softmac_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
+cu_softmac_netif_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
 			   CU_SOFTMAC_NETIF_TX_FUNC txfunc,
 			   void* txfunc_priv) {
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;
@@ -259,7 +312,7 @@ static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
     if (inst->txfunc) {
       //printk(KERN_DEBUG "SoftMAC netif: hard_start -- got txfunction\n");
       spin_lock(&(inst->devlock));
-      txresult = (inst->txfunc)(inst->txfunc_priv,skb);
+      txresult = (inst->txfunc)(inst,inst->txfunc_priv,skb);
       spin_unlock(&(inst->devlock));
     }
     else {
@@ -329,6 +382,25 @@ static void softmac_netif_dev_tx_timeout(struct net_device *dev) {
   printk(KERN_DEBUG "SoftMAC netif: dev_tx timeout!\n");
 }
 
+/*
+ * "unload" notification handler that connects to a softmac mac
+ */
+static void
+softmac_netif_unload_mac(void* priv) {
+  CU_SOFTMAC_NETIF_INSTANCE* inst = priv;
+  int result = 0;
+  if (inst) {
+    spin_lock(&(inst->devlock));
+    inst->txfunc = 0;
+    inst->txfunc_priv = 0;
+    spin_unlock(&(inst->devlock));
+  }
+  else {
+    result = -1;
+  }
+  return result;
+}
+
 static int testtxfunc(void* priv,struct sk_buff* skb) {
   printk(KERN_DEBUG "Got packet for transmit, length %d bytes\n",skb->len);
   dev_kfree_skb(skb);
@@ -373,7 +445,7 @@ static void __exit softmac_netif_exit(void)
 EXPORT_SYMBOL(cu_softmac_netif_create_eth);
 EXPORT_SYMBOL(cu_softmac_netif_destroy);
 EXPORT_SYMBOL(cu_softmac_netif_rx_packet);
-EXPORT_SYMBOL(cu_softmac_set_tx_callback);
+EXPORT_SYMBOL(cu_softmac_netif_set_tx_callback);
 
 module_init(softmac_netif_init);
 module_exit(softmac_netif_exit);

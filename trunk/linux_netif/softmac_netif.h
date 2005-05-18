@@ -32,7 +32,9 @@
  */
 
 typedef void* CU_SOFTMAC_NETIF_HANDLE;
-typedef int (*CU_SOFTMAC_NETIF_TX_FUNC)(void*,struct sk_buff* packet);
+
+typedef int (*CU_SOFTMAC_NETIF_TX_FUNC)(CU_SOFTMAC_NETIF_HANDLE,void*,struct sk_buff* packet);
+typedef int (*CU_SOFTMAC_NETIF_SIMPLE_NOTIFY_FUNC)(CU_SOFTMAC_NETIF_HANDLE,void*);
 
 /*
  * This function creates an ethernet interface
@@ -50,11 +52,23 @@ void
 cu_softmac_netif_destroy(CU_SOFTMAC_NETIF_HANDLE nif);
 
 /*
+ * Detach the current client
+ */
+void
+cu_softmac_netif_detach(CU_SOFTMAC_NETIF_HANDLE nif);
+
+
+/*
  * A client should call this function when it has a packet ready
  * to send up to higher layers of the network stack.
  * XXX this assumes ethernet-encapsulated packets -- should
  * make things more general at some point.
  */
+enum {
+  CU_SOFTMAC_NETIF_RX_PACKET_OK = 0,
+  CU_SOFTMAC_NETIF_RX_PACKET_BUSY = 1,
+  CU_SOFTMAC_NETIF_RX_PACKET_ERROR = 2,
+};
 int
 cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,struct sk_buff* packet);
 
@@ -62,8 +76,17 @@ cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,struct sk_buff* packet);
  * Set the function to call when a packet is ready for transmit
  */
 void
-cu_softmac_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
-			   CU_SOFTMAC_NETIF_TX_FUNC txfunc,
-			   void* txfunc_priv);
+cu_softmac_netif_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
+				 CU_SOFTMAC_NETIF_TX_FUNC txfunc,
+				 void* txfunc_priv);
+
+/*
+ * Set the function to call when the interface is being unloaded
+ */
+void
+cu_softmac_netif_set_unload_callback(CU_SOFTMAC_NETIF_HANDLE nif,
+				     CU_SOFTMAC_NETIF_SIMPLE_NOTIFY_FUNC unloadfunc,
+				     void* unloadfunc_priv);
+
 
 #endif
