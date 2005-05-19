@@ -69,11 +69,6 @@ static LIST_HEAD(softmac_netif_instance_list);
 
 static void softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst);
 static void softmac_netif_init_instance(CU_SOFTMAC_NETIF_INSTANCE* inst);
-static CU_SOFTMAC_NETIF_INSTANCE* netif_create_eth(char* name,
-						   unsigned char* macaddr,
-						   CU_SOFTMAC_NETIF_TX_FUNC txfunc,
-						   void* txfunc_priv);
-
 
 /*
  * netif "dev" functions
@@ -110,11 +105,12 @@ softmac_netif_init_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
 /*
  * This function creates an ethernet interface
  */
-static CU_SOFTMAC_NETIF_INSTANCE*
-netif_create_eth(char* name,unsigned char* macaddr,
-		 CU_SOFTMAC_NETIF_TX_FUNC txfunc,void* txfunc_priv) {
+CU_SOFTMAC_NETIF_HANDLE
+cu_softmac_netif_create_eth(char* name,unsigned char* macaddr,
+			    CU_SOFTMAC_NETIF_TX_FUNC txfunc,
+			    void* txfunc_priv) {
   CU_SOFTMAC_NETIF_INSTANCE* newinst = 0;
-  if (!name || !macaddr) {
+  if (!name) {
     return 0;
   }
   printk(KERN_DEBUG "SoftMAC netif: create_eth %s\n",name);
@@ -160,18 +156,6 @@ netif_create_eth(char* name,unsigned char* macaddr,
   }
   return newinst;
 }
-
-/*
- * This function creates an ethernet interface
- */
-CU_SOFTMAC_NETIF_HANDLE
-cu_softmac_netif_create_eth(char* name,
-			    unsigned char* macaddr,
-			    CU_SOFTMAC_NETIF_TX_FUNC txfunc,
-			    void* txfunc_priv) {
-  return netif_create_eth(name,macaddr,txfunc,txfunc_priv);
-}
-
 
 /*
  * Detach the current client
@@ -402,7 +386,7 @@ static int __init softmac_netif_init(void)
   printk(KERN_ALERT "Loading SoftMAC netif module\n");
   if (softmac_netif_test_on_load) {
     printk(KERN_ALERT "Creating test interface foo0\n");
-    netif_create_eth("foo0","\0\1\2\3\4\5",testtxfunc,0);
+    cu_softmac_netif_create_eth("foo0","\0\1\2\3\4\5",testtxfunc,0);
   }
   return 0;
 }
