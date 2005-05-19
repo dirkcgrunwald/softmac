@@ -39,6 +39,7 @@
 #include <linux/if.h>
 #include <linux/if_arp.h>
 #include <linux/if_ether.h>
+#include <linux/rtnetlink.h>
 #include "../cu_softmac_api.h"
 #include "softmac_netif.h"
 
@@ -148,7 +149,9 @@ cu_softmac_netif_create_eth(char* name,unsigned char* macaddr,
     newinst->txfunc_priv = txfunc_priv;
     spin_unlock(&(newinst->devlock));
     printk(KERN_DEBUG "SoftMAC netif: create_eth registering netdev\n");
+    rtnl_lock();
     register_netdevice(&(newinst->netdev));
+    rtnl_unlock();
     printk(KERN_DEBUG "SoftMAC netif: create_eth registered netdev\n");
     spin_lock(&(newinst->devlock));
     newinst->devregistered = 1;
@@ -222,7 +225,9 @@ softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
       printk(KERN_DEBUG "About to unregister %p (%s) -- got lock\n",inst,inst->netdev.name);
       inst->devregistered = 0;
       spin_unlock(&(inst->devlock));
+      rtnl_lock();
       unregister_netdevice(&(inst->netdev));
+      rtnl_unlock();
     }
     else {
       spin_unlock(&(inst->devlock));
