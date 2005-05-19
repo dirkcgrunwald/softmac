@@ -502,7 +502,7 @@ static int __init softmac_cheesymac_init(void)
 	 * Now attach our cheesymac instance to the PHY layers
 	 */
 	printk(KERN_DEBUG "CheesyMAC: Created instance of self, attaching to PHY\n");
-	if (!(newmacinfo.cu_softmac_mac_attach_to_phy)(newmacinfo.mac_private,&athphyinfo)) {
+	if (!((newmacinfo.cu_softmac_mac_attach_to_phy)(newmacinfo.mac_private,&athphyinfo))) {
 	  char ifnamebuf[64];
 	  int netid = cheesymac_next_instanceid - 1;
 	  CU_SOFTMAC_NETIF_HANDLE newnetif = 0;
@@ -512,8 +512,11 @@ static int __init softmac_cheesymac_init(void)
 	   * Now create our network interface and attach to it
 	   */
 	  snprintf(ifnamebuf,64,cheesymac_netiftemplate,netid);
+	  printk(KERN_DEBUG "CheesyMAC: creating netif %s\n",ifnamebuf);
 	  newnetif = cu_softmac_netif_create_eth(ifnamebuf,0,cheesymac_netif_txhelper,newmacinfo.mac_private);
+	  printk(KERN_DEBUG "CheesyMAC: Setting mac unload notify func\n");
 	  (newmacinfo.cu_softmac_mac_set_unload_notify_func)(newmacinfo.mac_private,cu_softmac_netif_detach,newnetif);
+	  printk(KERN_DEBUG "CheesyMAC: Setting netif unload callback func\n");
 	  cu_softmac_netif_set_unload_callback(newnetif,cheesymac_netif_unload_helper,newmacinfo.mac_private);
 	}
 	else {
