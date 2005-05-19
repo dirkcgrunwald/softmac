@@ -285,9 +285,8 @@ cu_softmac_mac_packet_tx_done_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
  * via pointer as "cu_softmac_packet_tx".
  */
 static int
-cu_softmac_mac_packet_tx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
-				   void* mydata,
-				   struct sk_buff* packet, int intop);
+cu_softmac_mac_packet_tx_cheesymac(void* mydata,struct sk_buff* packet,
+				   int intop);
 
 /**
  * @brief Tell the MAC layer to attach to the specified PHY layer.
@@ -456,10 +455,19 @@ cheesymac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
      * we're using -- in Linux the packet transmission is
      * instigated by a softirq in the bottom half.
      */
-    int txresult = cu_softmac_mac_packet_tx_cheesymac(inst->myphy.phyhandle,inst,packet,0);
+    int txresult = cu_softmac_mac_packet_tx_cheesymac(inst,packet,0);
     if (CU_SOFTMAC_MAC_TX_OK != txresult) {
       dev_kfree_skb(packet);
     }
+  }
+  return 0;
+}
+
+static int
+cheesymac_netif_unload_helper(CU_SOFTMAC_NETIF_HANDLE netif,void* priv) {
+  CHEESYMAC_INSTANCE* inst = priv;
+  if (inst) {  
+    cu_softmac_mac_set_rx_func_cheesymac(inst,0,0);
   }
   return 0;
 }
@@ -506,7 +514,7 @@ static int __init softmac_cheesymac_init(void)
 	  snprintf(ifnamebuf,64,cheesymac_netiftemplate,netid);
 	  newnetif = cu_softmac_netif_create_eth(ifnamebuf,0,cheesymac_netif_txhelper,newmacinfo.mac_private);
 	  (newmacinfo.cu_softmac_mac_set_unload_notify_func)(newmacinfo.mac_private,cu_softmac_netif_detach,newnetif);
-	  cu_softmac_netif_set_unload_callback(newnetif,func(CU_SOFTMAC_NETIF_HANDLE,void*),priv);
+	  cu_softmac_netif_set_unload_callback(newnetif,cheesymac_netif_unload_helper,newmacinfo.mac_private);
 	}
 	else {
 	  printk(KERN_ALERT "CheesyMAC: Unable to attach to PHY!\n");
@@ -795,12 +803,13 @@ static int cu_softmac_mac_work_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 
   if (inst) {
     int txresult;
+    struct sk_buff* skb = 0;
     /*
      * Walk our transmit queue, shovelling out packets as we go...
      */
     while ((skb = skb_dequeue(&(inst->tx_skbqueue)))) {
-      cu_softmac_cheesymac_prep_skb(inst,nfh,packet);
-      txresult = (inst->myphy.cu_softmac_sendpacket)(nfh,inst->maxinflight,packet);
+      cu_softmac_cheesymac_prep_skb(inst,nfh,skb);
+      txresult = (inst->myphy.cu_softmac_sendpacket)(nfh,inst->maxinflight,skb);
       if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
 	printk(KERN_ALERT "SoftMAC CheesyMAC: work packet tx failed: %d\n",txresult);
       }
@@ -907,6 +916,8 @@ cu_softmac_cheesymac_get_macinfo(void* macpriv,
   macinfo->cu_softmac_mac_detach = cu_softmac_mac_detach_cheesymac;
   macinfo->cu_softmac_mac_attach_to_phy = cu_softmac_mac_attach_to_phy_cheesymac;
   macinfo->cu_softmac_mac_detach_from_phy = cu_softmac_mac_detach_from_phy_cheesymac;
+  macinfo->cu_softmac_mac_set_rx_func = cu_softmac_mac_set_rx_func_cheesymac;
+  macinfo->cu_softmac_mac_set_unload_notify_func = cu_softmac_mac_set_unload_notify_func_cheesymac;
   macinfo->mac_private = macpriv;
 
   return result;
