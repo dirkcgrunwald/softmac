@@ -58,8 +58,8 @@ __FBSDID("$FreeBSD: src/sys/dev/ath/if_ath.c,v 1.76 2005/01/24 20:31:24 sam Exp 
 #include <linux/if_arp.h>
 #ifdef HAS_CU_SOFTMAC
 #include <linux/etherdevice.h>
-#include "cu_softmac_api.h"
-#include "cu_softmac_ath_api.h"
+#include "../cu_softmac_api.h"
+#include "../cu_softmac_ath_api.h"
 #endif
 
 #include <asm/uaccess.h>
@@ -339,9 +339,7 @@ static int	ath_cu_softmac_rx_intr(struct net_device *);
 static int	ath_cu_softmac_txdone_intr(struct net_device *);
 static int ath_cu_softmac_handle_rx(struct net_device* dev,int intop);
 
-// ath_cu_softmac_rx/tx functions are called when a packet comes
-// down the stack on its way out or while in the top half of the
-// interrupt handler for packet reception.
+// ath_cu_softmac_rx function is called when a packet comes in 
 static int ath_cu_softmac_rx(struct net_device*, struct sk_buff*,int intop);
 
 // The ath_cu_softmac_*_tasklet functions are optionally scheduled to
@@ -354,10 +352,9 @@ static int ath_cu_softmac_packetduration(struct net_device* dev,struct sk_buff* 
 // the "phocus" antenna if attached.
 void cu_softmac_ath_set_phocus_state(u_int16_t state,int16_t settle);
 
-// Used for the simple "raw ethernet" encapsulation scheme
+// Encapsulate/decapsulate the required extra header gunk
 static struct sk_buff* ath_cu_softmac_encapsulate(struct ath_softc* sc,struct sk_buff* skb);
 static struct sk_buff* ath_cu_softmac_decapsulate(struct ath_softc* sc,struct sk_buff* skb);
-static void ath_cu_softmac_tagether(struct net_device*,struct sk_buff*);
 // returns length of header or -1 if unknown packet type
 static int ath_cu_softmac_getheaderlen(struct ath_softc*,struct sk_buff*);
 // returns CU_SOFTMAC_HEADER_* variable
@@ -1015,6 +1012,7 @@ ath_intr(int irq, void *dev_id, struct pt_regs *regs)
 		    if ((sc->sc_cu_softmac) &&
 			(sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR)) {
 		      if (ath_cu_softmac_rx_intr(dev)) {
+			printk(KERN_ALERT "if_ath: scheduling rxq\n");
 			ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_rxtq,&needmark);
 		      }
 		    }
@@ -3616,16 +3614,6 @@ ath_rx_tasklet(TQUEUE_ARG data)
 	HAL_STATUS status;
 
 	DPRINTF(sc, ATH_DEBUG_RX_PROC, "%s\n", __func__);
-#ifdef HAS_CU_SOFTMAC
-	/*
-	 * In SoftMAC mode we steal all of the received packets.
-	 */
-	if ((sc->sc_cu_softmac) &&
-	    (sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR)) {
-	  ath_cu_softmac_rx_tasklet(data);
-	  return; 
-	}
-#endif
 	do {
 		bf = STAILQ_FIRST(&sc->sc_rxbuf);
 		if (bf == NULL) {		/* XXX ??? can this happen */
@@ -6964,6 +6952,7 @@ cu_softmac_schedule_work_asap_ath(CU_SOFTMAC_PHY_HANDLE nfh) {
   //struct net_device* dev = &(sc->sc_dev);
   //struct ath_hal *ah = sc->sc_ah;
   int needmark = 0;
+  printk(KERN_ALERT "if_ath: scheduling workq\n");
   ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq,&needmark);
   if (needmark) mark_bh(IMMEDIATE_BH);
 }
@@ -7377,6 +7366,7 @@ ath_cu_softmac_handle_rx(struct net_device* dev,int intop) {
   //u_int phyerr;
   HAL_STATUS status;
   
+  printk(KERN_ALERT "if_ath: in handle_rx %d\n",intop);
   DPRINTF(sc, ATH_DEBUG_RX_PROC, "%s\n", __func__);
 
   do {
@@ -7455,10 +7445,9 @@ ath_cu_softmac_handle_rx(struct net_device* dev,int intop) {
     /*
      * Normal receive.
      */
-    skb_put(skb, len);
-    skb->protocol = ETH_P_CONTROL;		/* XXX */
     if (0 < len) {
       // Handoff to the softmac
+      skb_put(skb, len);
       if (ath_cu_softmac_rx(dev,skb,intop)) {
 	// Returning non-zero from here means that
 	// the softmac layer has not finished handling
@@ -7492,6 +7481,7 @@ ath_cu_softmac_rx_tasklet(TQUEUE_ARG data) {
   struct net_device *dev = (struct net_device *)data;
   struct ath_softc* sc = dev->priv;
   int goagain = 0;
+  printk(KERN_ALERT "if_ath: in rx_tasklet\n");
   goagain = ath_cu_softmac_handle_rx(dev,0);
   if (goagain) {
     int needmark = 0;
@@ -7500,14 +7490,6 @@ ath_cu_softmac_rx_tasklet(TQUEUE_ARG data) {
       mark_bh(IMMEDIATE_BH);
     }
   }
-}
-
-static void
-ath_cu_softmac_tagether(struct net_device* dev,struct sk_buff* skb) {
-  skb->dev = dev;
-  skb->mac.raw = skb->data;
-  skb->nh.raw = skb->data + sizeof(struct ether_header);
-  skb->protocol = eth_type_trans(skb,dev);
 }
 
 static int
@@ -7520,34 +7502,34 @@ ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop) {
   // check to see if we've got a softmac plugin, defer handling to it.
   if (pfrx) {
     int rxresult = CU_SOFTMAC_MAC_NOTIFY_OK;
-    if (ath_cu_softmac_issoftmac(sc,skb) && !sc->sc_cu_softmac_raw80211) {
+    if (ath_cu_softmac_issoftmac(sc,skb)) {
       skb = ath_cu_softmac_decapsulate(sc, skb);
-    }
-    ath_cu_softmac_tagether(dev,skb);
-    rxresult = (pfrx)(sc,macpriv,skb,intop);
-    if (CU_SOFTMAC_MAC_NOTIFY_OK == rxresult) {
-      result = 0;
-    }
-    else if (CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN == rxresult) {
-      result = 1;
+      rxresult = (pfrx)(sc,macpriv,skb,intop);
+      if (CU_SOFTMAC_MAC_NOTIFY_OK == rxresult) {
+	result = 0;
+      }
+      else if (CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN == rxresult) {
+	result = 1;
+      }
+      else {
+	/*
+	 * Something went wrong -- free the packet and move on.
+	 */
+	dev_kfree_skb(skb);
+	result = 0;
+      }
     }
     else {
       /*
-       * Something went wrong -- free the packet and move on.
+       * Not a SoftMAC packet -- free it and move on
        */
       dev_kfree_skb(skb);
       result = 0;
     }
   }
-  //else {
-  // XXX send these up the "monitoring" interface?
-    // Pass foreign packets up the chain...
-    //skb = ath_cu_softmac_foreign_toeth(sc,skb,CU_SOFTMAC_FOREIGN_ETHERTYPE);
-    //ath_cu_softmac_tagether(dev,skb);
-    //netif_rx(skb);
-  //}
   else {
-    kfree_skb(skb);
+    dev_kfree_skb(skb);
+    result = 0;
   }
   return result;
 }
