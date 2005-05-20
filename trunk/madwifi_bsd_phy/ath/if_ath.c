@@ -7366,7 +7366,7 @@ ath_cu_softmac_handle_rx(struct net_device* dev,int intop) {
   //u_int phyerr;
   HAL_STATUS status;
   
-  printk(KERN_ALERT "if_ath: in handle_rx %d\n",intop);
+  //printk(KERN_ALERT "if_ath: in handle_rx %d\n",intop);
   DPRINTF(sc, ATH_DEBUG_RX_PROC, "%s\n", __func__);
 
   do {
@@ -7504,6 +7504,7 @@ ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop) {
     int rxresult = CU_SOFTMAC_MAC_NOTIFY_OK;
     if (ath_cu_softmac_issoftmac(sc,skb)) {
       skb = ath_cu_softmac_decapsulate(sc, skb);
+      printk(KERN_ALERT "SoftMAC: Got softmac packet!\n");
       rxresult = (pfrx)(sc,macpriv,skb,intop);
       if (CU_SOFTMAC_MAC_NOTIFY_OK == rxresult) {
 	result = 0;
