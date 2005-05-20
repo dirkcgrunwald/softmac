@@ -78,7 +78,7 @@ typedef struct CHEESYMAC_INSTANCE_t {
   /**
    * @brief Lock access to MAC when altering basic parameters.
    */
-  spinlock_t mac_busy;
+  rwlock_t mac_busy;
 
   /**
    * @brief Keep a handle to the currently attached PHY layer.
@@ -599,14 +599,7 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
   int txresult = CU_SOFTMAC_PHY_SENDPACKET_OK;
 
   if (inst) {
-    if (!spin_trylock(&(inst->mac_busy))) {
-      /*
-       * Make sure nobody tries to steal the MAC layer
-       * out from under us...
-       */
-      printk(KERN_DEBUG "CheesyMAC: packet_tx -- mac busy!\n");
-      return CU_SOFTMAC_MAC_TX_FAIL;
-    }
+    read_lock(&(inst->mac_busy));
     nfh = inst->myphy.phyhandle;
     /*
      * Check to see if we're in the top half or bottom half, i.e. are
@@ -668,7 +661,7 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
 	}
       }
     }
-    spin_unlock(&(inst->mac_busy));
+    read_unlock(&(inst->mac_busy));
   }
   else {
     /*
@@ -689,13 +682,7 @@ static int cu_softmac_mac_packet_tx_done_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
   CHEESYMAC_INSTANCE* inst = mydata;
 
   if (inst) {
-    if (!spin_trylock(&(inst->mac_busy))) {
-      /*
-       * If we can't get the lock tell the PHY layer we're busy...
-       */
-      printk(KERN_ALERT "CheesyMAC: packet_tx_done -- mac busy!\n");
-      return CU_SOFTMAC_MAC_NOTIFY_BUSY;
-    }
+    read_lock(&(inst->mac_busy));
     /*
      * Check to see if we're supposed to defer handling
      */
@@ -728,7 +715,7 @@ static int cu_softmac_mac_packet_tx_done_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 	(inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,skb);
       }
     }
-    spin_unlock(&(inst->mac_busy));
+    read_unlock(&(inst->mac_busy));
   }
   else {
     printk(KERN_ALERT "CheesyMAC: packet_tx_done -- no instance handle!\n");
@@ -747,10 +734,7 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
   int status = CU_SOFTMAC_MAC_NOTIFY_OK;
 
   if (inst) {
-    if (!spin_trylock(&(inst->mac_busy))) {
-      printk(KERN_ALERT "CheesyMAC: packet_rx -- mac busy!\n");
-      return CU_SOFTMAC_MAC_NOTIFY_BUSY;
-    }
+    read_lock(&(inst->mac_busy));
     if (intop) {
       if (inst->deferrx && packet) {
 	/*
@@ -767,8 +751,11 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 	if (inst->myrxfunc) {
 	  (inst->myrxfunc)(inst->myrxfunc_priv,packet);
 	}
-	else {
+	else if (inst->myphy.cu_softmac_free_skb) {
 	  (inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,packet);
+	}
+	else {
+	  status = CU_SOFTMAC_MAC_NOTIFY_HOSED;
 	}
       }
     }
@@ -834,7 +821,7 @@ static int cu_softmac_mac_detach_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
   if (mypriv) {
     CHEESYMAC_INSTANCE* inst = mypriv;
     printk(KERN_DEBUG "CheesyMAC: mac_detach -- getting lock\n");
-    spin_lock(&(inst->mac_busy));
+    write_lock(&(inst->mac_busy));
     printk(KERN_DEBUG "CheesyMAC: mac_detach -- got lock\n");
     /*
      * The PHY layer has finished detaching us -- make sure we don't
@@ -853,7 +840,7 @@ static int cu_softmac_mac_detach_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
       memset(&(inst->myphy),0,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
       printk(KERN_DEBUG "CheesyMAC: mac_detach -- done\n");
     }
-    spin_unlock(&(inst->mac_busy));
+    write_unlock(&(inst->mac_busy));
     printk(KERN_DEBUG "CheesyMAC: mac_detach -- released lock\n");
   }
   else {
@@ -1021,12 +1008,12 @@ static int cheesymac_setup_instance(CHEESYMAC_INSTANCE* newinst,
   /*
    * Set our instance default parameter values
    */
-  newinst->mac_busy = SPIN_LOCK_UNLOCKED;
+  newinst->mac_busy = RW_LOCK_UNLOCKED;
 
   /*
    * Now acquire the mac_busy lock and start bashing on the instance...
    */
-  spin_lock(&(newinst->mac_busy));
+  write_lock(&(newinst->mac_busy));
   newinst->attached_to_phy = 0;
 
   /*
@@ -1068,7 +1055,7 @@ static int cheesymac_setup_instance(CHEESYMAC_INSTANCE* newinst,
    */
   newinst->my_procfs_root = cheesymac_procfsroot_handle;
   cheesymac_make_procfs_entries(newinst);
-  spin_unlock(&(newinst->mac_busy));
+  write_unlock(&(newinst->mac_busy));
   return result;
 }
 
@@ -1084,37 +1071,37 @@ cheesymac_inst_read_proc(char *page, char **start, off_t off,
 
     switch (procdata->entryid) {
     case CHEESYMAC_INST_PROC_TXBITRATE:
-      spin_lock(&(inst->mac_busy));
+      read_lock(&(inst->mac_busy));
       intval = inst->txbitrate;
-      spin_unlock(&(inst->mac_busy));
+      read_unlock(&(inst->mac_busy));
       result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
     case CHEESYMAC_INST_PROC_DEFERTX:
-      spin_lock(&(inst->mac_busy));
+      read_lock(&(inst->mac_busy));
       intval = inst->defertx;
-      spin_unlock(&(inst->mac_busy));
+      read_unlock(&(inst->mac_busy));
       result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
     case CHEESYMAC_INST_PROC_DEFERTXDONE:
-      spin_lock(&(inst->mac_busy));
+      read_lock(&(inst->mac_busy));
       intval = inst->defertxdone;
-      spin_unlock(&(inst->mac_busy));
+      read_unlock(&(inst->mac_busy));
       result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
     case CHEESYMAC_INST_PROC_DEFERRX:
-      spin_lock(&(inst->mac_busy));
+      read_lock(&(inst->mac_busy));
       intval = inst->deferrx;
-      spin_unlock(&(inst->mac_busy));
+      read_unlock(&(inst->mac_busy));
       result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
     case CHEESYMAC_INST_PROC_MAXINFLIGHT:
-      spin_lock(&(inst->mac_busy));
+      read_lock(&(inst->mac_busy));
       intval = inst->maxinflight;
-      spin_unlock(&(inst->mac_busy));
+      read_unlock(&(inst->mac_busy));
       result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
@@ -1159,33 +1146,33 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
     switch (procdata->entryid) {
     case CHEESYMAC_INST_PROC_TXBITRATE:
       intval = simple_strtol(kdata,&endp,10);
-      spin_lock(&(inst->mac_busy));
+      write_lock(&(inst->mac_busy));
       inst->txbitrate = intval;
-      spin_unlock(&(inst->mac_busy));
+      write_unlock(&(inst->mac_busy));
       break;
     case CHEESYMAC_INST_PROC_DEFERTX:
       intval = simple_strtol(kdata,&endp,10);
-      spin_lock(&(inst->mac_busy));
+      write_lock(&(inst->mac_busy));
       inst->defertx = intval;
-      spin_unlock(&(inst->mac_busy));
+      write_unlock(&(inst->mac_busy));
       break;
     case CHEESYMAC_INST_PROC_DEFERTXDONE:
       intval = simple_strtol(kdata,&endp,10);
-      spin_lock(&(inst->mac_busy));
+      write_lock(&(inst->mac_busy));
       inst->defertxdone = intval;
-      spin_unlock(&(inst->mac_busy));
+      write_unlock(&(inst->mac_busy));
       break;
     case CHEESYMAC_INST_PROC_DEFERRX:
       intval = simple_strtol(kdata,&endp,10);
-      spin_lock(&(inst->mac_busy));
+      write_lock(&(inst->mac_busy));
       inst->deferrx = intval;
-      spin_unlock(&(inst->mac_busy));
+      write_unlock(&(inst->mac_busy));
       break;
     case CHEESYMAC_INST_PROC_MAXINFLIGHT:
       intval = simple_strtol(kdata,&endp,10);
-      spin_lock(&(inst->mac_busy));
+      write_lock(&(inst->mac_busy));
       inst->maxinflight = intval;
-      spin_unlock(&(inst->mac_busy));
+      write_unlock(&(inst->mac_busy));
       break;
 
     default:
@@ -1207,7 +1194,7 @@ cu_softmac_mac_attach_to_phy_cheesymac(void* handle,
   if (inst && phyinfo) {
     CU_SOFTMAC_MACLAYER_INFO cheesymacinfo;
     printk(KERN_DEBUG "SoftMAC CheesyMAC: Attaching to PHY -- getting lock\n");
-    spin_lock(&(inst->mac_busy));
+    write_lock(&(inst->mac_busy));
     printk(KERN_DEBUG "SoftMAC CheesyMAC: Attaching to PHY -- got lock\n");
     if (inst->attached_to_phy) {
       /*
@@ -1228,7 +1215,7 @@ cu_softmac_mac_attach_to_phy_cheesymac(void* handle,
       printk(KERN_DEBUG "SoftMAC CheesyMAC: Return from PHY attach\n");
     }
     printk(KERN_DEBUG "SoftMAC CheesyMAC: Unlocking MAC\n");
-    spin_unlock(&(inst->mac_busy));
+    write_unlock(&(inst->mac_busy));
   }
   else {
     printk(KERN_ALERT "SoftMAC CheesyMAC: Invalid MAC/PHY data on attach!\n");
@@ -1275,10 +1262,10 @@ cu_softmac_mac_set_rx_func_cheesymac(void* mydata,
   int result = 0;
   CHEESYMAC_INSTANCE* inst = mydata;
   if (inst) {
-    spin_lock(&(inst->mac_busy));  
+    write_lock(&(inst->mac_busy));  
     inst->myrxfunc = rxfunc;
     inst->myrxfunc_priv = rxpriv;
-    spin_unlock(&(inst->mac_busy));  
+    write_unlock(&(inst->mac_busy));  
   }
 
   return result;
@@ -1291,10 +1278,10 @@ cu_softmac_mac_set_unload_notify_func_cheesymac(void* mydata,
   int result = 0;
   CHEESYMAC_INSTANCE* inst = mydata;
   if (inst) {
-    spin_lock(&(inst->mac_busy));  
+    write_lock(&(inst->mac_busy));  
     inst->myunloadnotifyfunc = unloadfunc;
     inst->myunloadnotifyfunc_priv = unloadpriv;
-    spin_unlock(&(inst->mac_busy));  
+    write_unlock(&(inst->mac_busy));  
   }
 
   return result;
@@ -1320,7 +1307,7 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst) {
   /*
    * Now lock the instance and shut it down
    */
-  spin_lock(&(inst->mac_busy));
+  write_lock(&(inst->mac_busy));
 
   /*
    * remove procfs entries
@@ -1341,7 +1328,7 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst) {
   }
 
 
-  spin_unlock(&(inst->mac_busy));
+  write_unlock(&(inst->mac_busy));
 
   return result;
 }
@@ -1392,13 +1379,13 @@ cu_softmac_cheesymac_get_instance_params(void* macpriv,
 					 CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
   if (macpriv && params) {
     CHEESYMAC_INSTANCE* inst = macpriv;
-    spin_lock(&(inst->mac_busy));
+    read_lock(&(inst->mac_busy));
     params->txbitrate = inst->txbitrate;
     params->defertx = inst->defertx;
     params->defertxdone = inst->defertxdone;
     params->deferrx = inst->deferrx;
     params->maxinflight = inst->maxinflight;    
-    spin_unlock(&(inst->mac_busy));
+    read_unlock(&(inst->mac_busy));
   }
   else {
     printk(KERN_DEBUG "SoftMAC CheesyMAC: Called get_instance_params with bad data!\n");
@@ -1413,13 +1400,13 @@ cu_softmac_cheesymac_set_instance_params(void* macpriv,
 					 CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
   if (macpriv && params) {
     CHEESYMAC_INSTANCE* inst = macpriv;
-    spin_lock(&(inst->mac_busy));
+    write_lock(&(inst->mac_busy));
     inst->txbitrate = params->txbitrate;
     inst->defertx = params->defertx;
     inst->defertxdone = params->defertxdone;
     inst->deferrx = params->deferrx;
     inst->maxinflight = params->maxinflight;
-    spin_unlock(&(inst->mac_busy));
+    write_unlock(&(inst->mac_busy));
   }
   else {
     printk(KERN_DEBUG "SoftMAC CheesyMAC: Called set_instance_params with bad data!\n");
