@@ -48,11 +48,7 @@ MODULE_AUTHOR("Michael Neufeld");
 
 typedef struct CU_SOFTMAC_NETIF_INSTANCE_t {
   struct list_head list;
-  /*
-   * XXX may want to transform this into reader/writer lock to
-   * permit greater parallelism, e.g. tx and rx at the same time
-   */
-  spinlock_t devlock;
+  rwlock_t devlock;
   int devopen;
   int devregistered;
   int devregpending;
@@ -99,7 +95,7 @@ softmac_netif_init_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
   if (inst) {
     memset(inst,0,sizeof(CU_SOFTMAC_NETIF_INSTANCE));
     INIT_LIST_HEAD(&inst->list);
-    inst->devlock = SPIN_LOCK_UNLOCKED;
+    inst->devlock = RW_LOCK_UNLOCKED;
   }
 }
 
@@ -135,7 +131,7 @@ cu_softmac_netif_create_eth(char* name,unsigned char* macaddr,
     /*
      * Fire up the instance...
      */
-    spin_lock(&(newinst->devlock));
+    write_lock(&(newinst->devlock));
     ether_setup(dev);
     strncpy(dev->name,name,IFNAMSIZ);
     memcpy(dev->dev_addr,macaddr,6);
@@ -147,15 +143,15 @@ cu_softmac_netif_create_eth(char* name,unsigned char* macaddr,
     dev->watchdog_timeo = 5 * HZ;			/* XXX */
     newinst->txfunc = txfunc;
     newinst->txfunc_priv = txfunc_priv;
-    spin_unlock(&(newinst->devlock));
+    write_unlock(&(newinst->devlock));
     printk(KERN_DEBUG "SoftMAC netif: create_eth registering netdev\n");
     rtnl_lock();
     register_netdevice(&(newinst->netdev));
     rtnl_unlock();
     printk(KERN_DEBUG "SoftMAC netif: create_eth registered netdev\n");
-    spin_lock(&(newinst->devlock));
+    write_lock(&(newinst->devlock));
     newinst->devregistered = 1;
-    spin_unlock(&(newinst->devlock));
+    write_unlock(&(newinst->devlock));
   }
   return newinst;
 }
@@ -167,12 +163,12 @@ void
 cu_softmac_netif_detach(CU_SOFTMAC_NETIF_HANDLE nif) {
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
   if (inst){
-    spin_lock(&(inst->devlock));
+    write_lock(&(inst->devlock));
     inst->unloadfunc = 0;
     inst->unloadfunc_priv = 0;
     inst->txfunc = 0;
     inst->txfunc_priv = 0;
-    spin_unlock(&(inst->devlock));
+    write_unlock(&(inst->devlock));
   }
 }
 
@@ -183,10 +179,10 @@ void
 cu_softmac_netif_set_unload_callback(CU_SOFTMAC_NETIF_HANDLE nif,CU_SOFTMAC_NETIF_SIMPLE_NOTIFY_FUNC unloadfunc,void* unloadpriv) {
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
   if (inst){
-    spin_lock(&(inst->devlock));
+    write_lock(&(inst->devlock));
     inst->unloadfunc = unloadfunc;
     inst->unloadfunc_priv = unloadpriv;
-    spin_unlock(&(inst->devlock));
+    write_unlock(&(inst->devlock));
   }
 }
 
@@ -212,7 +208,7 @@ softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
   if (inst) {
     // XXX figure out locking...
     printk(KERN_DEBUG "About to cleanup %p (%s) -- locking\n",inst,inst->netdev.name);
-    spin_lock(&(inst->devlock));
+    write_lock(&(inst->devlock));
     printk(KERN_DEBUG "About to cleanup %p (%s) -- got lock\n",inst,inst->netdev.name);
     if (inst->unloadfunc) {
       (inst->unloadfunc)(inst,inst->unloadfunc_priv);
@@ -224,13 +220,13 @@ softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
     if (inst->devregistered) {
       printk(KERN_DEBUG "About to unregister %p (%s) -- got lock\n",inst,inst->netdev.name);
       inst->devregistered = 0;
-      spin_unlock(&(inst->devlock));
+      write_unlock(&(inst->devlock));
       rtnl_lock();
       unregister_netdevice(&(inst->netdev));
       rtnl_unlock();
     }
     else {
-      spin_unlock(&(inst->devlock));
+      write_unlock(&(inst->devlock));
     }
   }
 }
@@ -248,16 +244,7 @@ cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,
   if (inst) {
     struct net_device* dev = &(inst->netdev);
 
-    /*
-     * We don't want to block in this case. Let the MAC layer
-     * decide to either queue the packet and try later or
-     * simply discard it and move on.
-     */
-    if (!spin_trylock(&(inst->devlock))) {
-      printk(KERN_DEBUG "SoftMAC netif: rx_packet -- netif busy!\n");
-      return CU_SOFTMAC_NETIF_RX_PACKET_BUSY;
-    }
-
+    read_lock(&(inst->devlock));
     packet->dev = dev;
     packet->mac.raw = packet->data;
     /*
@@ -271,7 +258,7 @@ cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,
     else {
       result = CU_SOFTMAC_NETIF_RX_PACKET_ERROR;
     }
-    spin_unlock(&(inst->devlock));
+    read_unlock(&(inst->devlock));
   }
   else {
     result = CU_SOFTMAC_NETIF_RX_PACKET_ERROR;
@@ -290,10 +277,10 @@ cu_softmac_netif_set_tx_callback(CU_SOFTMAC_NETIF_HANDLE nif,
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;
 
   if (inst) {
-    spin_lock(&(inst->devlock));
+    write_lock(&(inst->devlock));
     inst->txfunc = txfunc;
     inst->txfunc_priv = txfunc_priv;
-    spin_unlock(&(inst->devlock));
+    write_unlock(&(inst->devlock));
   }
 }
 
@@ -310,9 +297,9 @@ static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
     //printk(KERN_DEBUG "SoftMAC netif: hard_start -- got instance\n");
     if (inst->txfunc) {
       //printk(KERN_DEBUG "SoftMAC netif: hard_start -- got txfunction\n");
-      spin_lock(&(inst->devlock));
+      read_lock(&(inst->devlock));
       txresult = (inst->txfunc)(inst,inst->txfunc_priv,skb);
-      spin_unlock(&(inst->devlock));
+      read_unlock(&(inst->devlock));
     }
     else {
       /*
@@ -342,7 +329,7 @@ static int softmac_netif_dev_open(struct net_device *dev) {
     /*
      * Mark the device as "open"
      */
-    spin_lock(&(inst->devlock));
+    write_lock(&(inst->devlock));
     if (!inst->devregistered) {
       /*
        *  Someone is opening us -> we've been registered
@@ -353,7 +340,7 @@ static int softmac_netif_dev_open(struct net_device *dev) {
       netif_start_queue(dev);
       inst->devopen = 1;
     }
-    spin_unlock(&(inst->devlock));
+    write_unlock(&(inst->devlock));
   }
   return result;
 }
@@ -366,13 +353,13 @@ static int softmac_netif_dev_stop(struct net_device *dev) {
     /*
      * Mark the device as "closed"
      */
-    spin_lock(&(inst->devlock));
+    write_lock(&(inst->devlock));
     if (inst->devopen) {
       printk(KERN_DEBUG "SoftMAC netif: stopping %s\n",inst->netdev.name);
       netif_stop_queue(dev);
       inst->devopen = 0;
     }
-    spin_unlock(&(inst->devlock));
+    write_unlock(&(inst->devlock));
   }
   return result;
 }
