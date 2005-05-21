@@ -353,7 +353,7 @@ static int cheesymac_inst_write_proc(struct file *file,
 enum {
   CHEESYMAC_DEFAULT_DEFERTX = 0,
   CHEESYMAC_DEFAULT_DEFERTXDONE = 0,
-  CHEESYMAC_DEFAULT_DEFERRX = 0,
+  CHEESYMAC_DEFAULT_DEFERRX = 1,
   CHEESYMAC_DEFAULT_MAXINFLIGHT = 256,
   CHEESYMAC_DEFAULT_DEFERALLRX = 0,
   CHEESYMAC_DEFAULT_DEFERALLTXDONE = 0,
@@ -518,6 +518,8 @@ static int __init softmac_cheesymac_init(void)
 	  (newmacinfo.cu_softmac_mac_set_unload_notify_func)(newmacinfo.mac_private,cu_softmac_netif_detach,newnetif);
 	  printk(KERN_DEBUG "CheesyMAC: Setting netif unload callback func\n");
 	  cu_softmac_netif_set_unload_callback(newnetif,cheesymac_netif_unload_helper,newmacinfo.mac_private);
+
+	  cu_softmac_mac_set_rx_func_cheesymac(newmacinfo.mac_private,cu_softmac_netif_rx_packet,newnetif);
 	}
 	else {
 	  printk(KERN_ALERT "CheesyMAC: Unable to attach to PHY!\n");
@@ -618,9 +620,6 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
 	 * to run.
 	 */
 	skb_queue_tail(&(inst->tx_skbqueue),packet);
-	/*
-	 * XXX schedule work task!
-	 */
 	(inst->myphy.cu_softmac_schedule_work_asap)(nfh);
 	status = CU_SOFTMAC_MAC_TX_OK;
       }
@@ -735,11 +734,14 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 
   if (inst) {
     read_lock(&(inst->mac_busy));
+    printk(KERN_DEBUG "cheesymac: packet rx\n");
     if (intop) {
+      printk(KERN_DEBUG "cheesymac: packet rx in top\n");
       if (inst->deferrx && packet) {
 	/*
 	 * Queue packet for later processing
 	 */
+	printk(KERN_DEBUG "cheesymac: packet rx deferring\n");
 	skb_queue_tail(&(inst->rx_skbqueue),packet);
 	status = CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN;
       }
@@ -749,12 +751,15 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 	 * an attached rxfunc, otherwise whack the packet.
 	 */
 	if (inst->myrxfunc) {
+	  printk(KERN_DEBUG "cheesymac: packet rx -- calling receive\n");
 	  (inst->myrxfunc)(inst->myrxfunc_priv,packet);
 	}
 	else if (inst->myphy.cu_softmac_free_skb) {
+	  printk(KERN_DEBUG "cheesymac: packet rx -- freeing skb\n");
 	  (inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,packet);
 	}
 	else {
+	  printk(KERN_DEBUG "cheesymac: packet rx -- mac hosed\n");
 	  status = CU_SOFTMAC_MAC_NOTIFY_HOSED;
 	}
       }
@@ -765,18 +770,23 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
        * Not in top half - walk our rx queue and send packets
        * up the stack
        */
+      printk(KERN_DEBUG "cheesymac: packet rx -- bottom half\n");
       if (packet) {
+	printk(KERN_DEBUG "cheesymac: packet rx -- queueing\n");
 	skb_queue_tail(&(inst->rx_skbqueue),packet);
       }
       while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
 	if (inst->myrxfunc) {
+	  printk(KERN_DEBUG "cheesymac: have rxfunc -- receiving\n");
 	  (inst->myrxfunc)(inst->myrxfunc_priv,packet);
 	}
 	else {
+	  printk(KERN_DEBUG "cheesymac: packet rx -- no rxfunc freeing skb\n");
 	  (inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,packet);
 	}
       }
     }
+    read_unlock(&(inst->mac_busy));
   }
   else {
     printk(KERN_ALERT "CheesyMAC: packet_rx -- no instance handle!\n");
