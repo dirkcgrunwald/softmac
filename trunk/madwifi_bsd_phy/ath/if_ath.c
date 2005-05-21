@@ -1012,7 +1012,7 @@ ath_intr(int irq, void *dev_id, struct pt_regs *regs)
 		    if ((sc->sc_cu_softmac) &&
 			(sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR)) {
 		      if (ath_cu_softmac_rx_intr(dev)) {
-			printk(KERN_ALERT "if_ath: scheduling rxq\n");
+			//printk(KERN_ALERT "if_ath: scheduling rxq\n");
 			ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_rxtq,&needmark);
 		      }
 		    }
@@ -6952,7 +6952,7 @@ cu_softmac_schedule_work_asap_ath(CU_SOFTMAC_PHY_HANDLE nfh) {
   //struct net_device* dev = &(sc->sc_dev);
   //struct ath_hal *ah = sc->sc_ah;
   int needmark = 0;
-  printk(KERN_ALERT "if_ath: scheduling workq\n");
+  //printk(KERN_ALERT "if_ath: scheduling workq\n");
   ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq,&needmark);
   if (needmark) mark_bh(IMMEDIATE_BH);
 }
@@ -7456,7 +7456,7 @@ ath_cu_softmac_handle_rx(struct net_device* dev,int intop) {
       }
     }
     else {
-      dev_kfree_skb(skb);
+      dev_kfree_skb_any(skb);
     }
     //rx_next:
     STAILQ_INSERT_TAIL(&sc->sc_rxbuf, bf, bf_list);
@@ -7481,7 +7481,7 @@ ath_cu_softmac_rx_tasklet(TQUEUE_ARG data) {
   struct net_device *dev = (struct net_device *)data;
   struct ath_softc* sc = dev->priv;
   int goagain = 0;
-  printk(KERN_ALERT "if_ath: in rx_tasklet\n");
+  //printk(KERN_ALERT "if_ath: in rx_tasklet\n");
   goagain = ath_cu_softmac_handle_rx(dev,0);
   if (goagain) {
     int needmark = 0;
@@ -7516,7 +7516,7 @@ ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop) {
 	/*
 	 * Something went wrong -- free the packet and move on.
 	 */
-	dev_kfree_skb(skb);
+	dev_kfree_skb_any(skb);
 	result = 0;
       }
     }
@@ -7524,12 +7524,12 @@ ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop) {
       /*
        * Not a SoftMAC packet -- free it and move on
        */
-      dev_kfree_skb(skb);
+      dev_kfree_skb_any(skb);
       result = 0;
     }
   }
   else {
-    dev_kfree_skb(skb);
+    dev_kfree_skb_any(skb);
     result = 0;
   }
   return result;
