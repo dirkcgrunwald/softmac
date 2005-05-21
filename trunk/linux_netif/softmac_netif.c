@@ -57,6 +57,7 @@ typedef struct CU_SOFTMAC_NETIF_INSTANCE_t {
   CU_SOFTMAC_NETIF_SIMPLE_NOTIFY_FUNC unloadfunc;
   void* unloadfunc_priv;
   struct net_device netdev;
+  struct net_device_stats devstats;
 } CU_SOFTMAC_NETIF_INSTANCE;
 
 /**
@@ -75,7 +76,8 @@ static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
 					     struct net_device* dev);
 static int softmac_netif_dev_stop(struct net_device *dev);
 static void softmac_netif_dev_tx_timeout(struct net_device *dev);
-
+static void softmac_netif_dev_mclist(struct net_device* dev);
+static struct net_device_stats* softmac_netif_dev_stats(struct net_device* dev);
 /*
 **
 ** Module parameters
@@ -141,6 +143,8 @@ cu_softmac_netif_create_eth(char* name,unsigned char* macaddr,
     dev->hard_start_xmit = softmac_netif_dev_hard_start_xmit;
     dev->tx_timeout = softmac_netif_dev_tx_timeout;
     dev->watchdog_timeo = 5 * HZ;			/* XXX */
+    dev->set_multicast_list = softmac_netif_dev_mclist;
+    dev->get_stats = softmac_netif_dev_stats;
     newinst->txfunc = txfunc;
     newinst->txfunc_priv = txfunc_priv;
     write_unlock(&(newinst->devlock));
@@ -194,7 +198,9 @@ cu_softmac_netif_destroy(CU_SOFTMAC_NETIF_HANDLE nif) {
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
   if (inst) {
     printk(KERN_DEBUG "cu_softmac_netif_destroy: removing from list\n");
+    write_lock(&(inst->devlock));
     list_del(&(inst->list));
+    write_unlock(&(inst->devlock));
     printk(KERN_DEBUG "cu_softmac_netif_destroy: removed from list\n");
     softmac_netif_cleanup_instance(inst);
     kfree(inst);
@@ -206,7 +212,6 @@ cu_softmac_netif_destroy(CU_SOFTMAC_NETIF_HANDLE nif) {
 static void
 softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
   if (inst) {
-    // XXX figure out locking...
     printk(KERN_DEBUG "About to cleanup %p (%s) -- locking\n",inst,inst->netdev.name);
     write_lock(&(inst->devlock));
     printk(KERN_DEBUG "About to cleanup %p (%s) -- got lock\n",inst,inst->netdev.name);
@@ -240,11 +245,11 @@ cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,
 			   struct sk_buff* packet) {
   int result = CU_SOFTMAC_NETIF_RX_PACKET_OK;
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
+  struct net_device* dev = 0;
   
   if (inst) {
-    struct net_device* dev = &(inst->netdev);
-
     read_lock(&(inst->devlock));
+    dev = &(inst->netdev);
     packet->dev = dev;
     packet->mac.raw = packet->data;
     /*
@@ -253,9 +258,11 @@ cu_softmac_netif_rx_packet(CU_SOFTMAC_NETIF_HANDLE nif,
     //packet->nh.raw = packet->data + sizeof(struct ether_header);
     packet->protocol = eth_type_trans(packet,dev);
     if (inst->devopen) {
+      //printk(KERN_DEBUG "softmac_netif: receiving packet!\n");
       netif_rx(packet);
     }
     else {
+      dev_kfree_skb_any(packet);
       result = CU_SOFTMAC_NETIF_RX_PACKET_ERROR;
     }
     read_unlock(&(inst->devlock));
@@ -294,22 +301,19 @@ static int softmac_netif_dev_hard_start_xmit(struct sk_buff* skb,
   //printk(KERN_DEBUG "SoftMAC netif: hard_start\n");
   if (dev && dev->priv) {
     CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
-    //printk(KERN_DEBUG "SoftMAC netif: hard_start -- got instance\n");
+    read_lock(&(inst->devlock));
     if (inst->txfunc) {
-      //printk(KERN_DEBUG "SoftMAC netif: hard_start -- got txfunction\n");
-      read_lock(&(inst->devlock));
       txresult = (inst->txfunc)(inst,inst->txfunc_priv,skb);
-      read_unlock(&(inst->devlock));
     }
     else {
       /*
        * Just drop the packet on the floor if there's no callback set
        */
-      //printk(KERN_DEBUG "SoftMAC netif: hard_start -- no txfunction set\n");
       dev_kfree_skb(skb);
       skb = 0;
       txresult = 0;
     }
+    read_unlock(&(inst->devlock));
   }
   else {
     /*
@@ -366,6 +370,25 @@ static int softmac_netif_dev_stop(struct net_device *dev) {
 
 static void softmac_netif_dev_tx_timeout(struct net_device *dev) {
   printk(KERN_DEBUG "SoftMAC netif: dev_tx timeout!\n");
+}
+
+static void softmac_netif_dev_mclist(struct net_device *dev)
+{
+  /*
+   * Nothing to do for multicast filters. 
+   * We always accept all frames. 
+   */
+  return;
+}
+
+static struct net_device_stats *softmac_netif_dev_stats(struct net_device *dev)
+{
+  struct net_device_stats* nds = 0;
+  if (dev && dev->priv) {
+    CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
+    nds = &inst->devstats;
+  }
+  return nds;
 }
 
 static int testtxfunc(CU_SOFTMAC_NETIF_HANDLE nif, void* priv,struct sk_buff* skb) {
