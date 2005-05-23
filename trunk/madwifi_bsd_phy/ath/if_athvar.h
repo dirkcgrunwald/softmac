@@ -347,7 +347,6 @@ struct ath_softc {
 #endif
 #ifdef HAS_CU_SOFTMAC
   int                    sc_cu_softmac;
-  int                    sc_cu_softmac_raw80211;
   int                    sc_cu_softmac_alwaystxintr;
   int                    sc_cu_softmac_phocus_settletime;
   int                    sc_cu_softmac_enable_phocus;
@@ -356,8 +355,6 @@ struct ath_softc {
   int                    sc_cu_softmac_noautocalibrate;
   int64_t                sc_cu_softmac_zerotime;
   atomic_t               sc_cu_softmac_tx_packets_inflight;
-  struct tq_struct       sc_cu_softmac_rxtq;
-  struct tq_struct       sc_cu_softmac_txdonetq;
   struct tq_struct       sc_cu_softmac_worktq;
   u_int32_t sc_cu_softmac_txlatency;
   u_int32_t sc_cu_softmac_options;

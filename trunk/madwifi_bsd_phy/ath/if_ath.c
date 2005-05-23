@@ -333,11 +333,11 @@ typedef struct {
 static int	ath_tx_raw_start(struct net_device *, struct ieee80211_node *,
 			     struct ath_buf *, struct sk_buff *);
 
-// ath_cu_softmac_*_intr functions are called when the corresponding
-// interrupt from the atheros card arrives.
-static int	ath_cu_softmac_rx_intr(struct net_device *);
-static int	ath_cu_softmac_txdone_intr(struct net_device *);
+// ath_cu_softmac_handle_rx,txdone are used to handle packet rx
+// or txdone signals, either in the top half (set "intop" to 1)
+// or bottom half (set "intop" to 0)
 static int ath_cu_softmac_handle_rx(struct net_device* dev,int intop);
+static int ath_cu_softmac_handle_txdone(struct net_device* dev, int intop);
 
 // ath_cu_softmac_rx function is called when a packet comes in 
 static int ath_cu_softmac_rx(struct net_device*, struct sk_buff*,int intop);
@@ -442,8 +442,6 @@ ath_attach(u_int16_t devid, struct net_device *dev)
 	ATH_INIT_TQUEUE(&sc->sc_radartq,ath_radar_tasklet,	dev);
 
 #ifdef HAS_CU_SOFTMAC
-	ATH_INIT_TQUEUE(&sc->sc_cu_softmac_rxtq,ath_cu_softmac_rx_tasklet,dev);
-	ATH_INIT_TQUEUE(&sc->sc_cu_softmac_txdonetq,ath_cu_softmac_txdone_tasklet,dev);
 	ATH_INIT_TQUEUE(&sc->sc_cu_softmac_worktq,ath_cu_softmac_work_tasklet,dev);
 
 	atomic_set(&(sc->sc_cu_softmac_tx_packets_inflight),0);
@@ -1010,10 +1008,10 @@ ath_intr(int irq, void *dev_id, struct pt_regs *regs)
 #ifdef HAS_CU_SOFTMAC
 		  {
 		    if ((sc->sc_cu_softmac) &&
-			(sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR)) {
-		      if (ath_cu_softmac_rx_intr(dev)) {
-			//printk(KERN_ALERT "if_ath: scheduling rxq\n");
-			ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_rxtq,&needmark);
+			(sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR) &&
+			!((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_DEFER_ALL_RX))) {
+		      if (ath_cu_softmac_handle_rx(dev,1)) {
+			ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq,&needmark);
 		      }
 		    }
 		    else {
@@ -1027,9 +1025,10 @@ ath_intr(int irq, void *dev_id, struct pt_regs *regs)
 #ifdef HAS_CU_SOFTMAC
 		  {
 		    if ((sc->sc_cu_softmac) &&
-			(sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR)) {
-		      if (ath_cu_softmac_txdone_intr(dev)) {
-			ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_txdonetq, &needmark);
+			(sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR) &&
+			!(sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_DEFER_ALL_TXDONE)) {
+		      if (ath_cu_softmac_handle_txdone(dev,1)) {
+			ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq, &needmark);
 		      }
 		    }
 		    else {
@@ -3614,6 +3613,13 @@ ath_rx_tasklet(TQUEUE_ARG data)
 	HAL_STATUS status;
 
 	DPRINTF(sc, ATH_DEBUG_RX_PROC, "%s\n", __func__);
+#ifdef HAS_CU_SOFTMAC
+	if ((sc->sc_cu_softmac) &&
+	    (sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR)) {
+	  ath_cu_softmac_rx_tasklet(data);
+	  return;
+	}
+#endif
 	do {
 		bf = STAILQ_FIRST(&sc->sc_rxbuf);
 		if (bf == NULL) {		/* XXX ??? can this happen */
@@ -4640,6 +4646,14 @@ ath_tx_tasklet_q0(TQUEUE_ARG data)
 	struct ath_softc *sc = dev->priv;
 	struct ieee80211com *ic = &sc->sc_ic;
 
+#ifdef HAS_CU_SOFTMAC
+	if ((sc->sc_cu_softmac) &&
+	    (sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR)) {
+	  ath_cu_softmac_txdone_tasklet(data);
+	  return;
+	}
+#endif
+
 	ath_tx_processq(sc, &sc->sc_txq[0]);
 	ath_tx_processq(sc, sc->sc_cabq);
 
@@ -4671,6 +4685,14 @@ ath_tx_tasklet_q0123(TQUEUE_ARG data)
 	struct net_device *dev = (struct net_device *)data;
 	struct ath_softc *sc = dev->priv;
 	struct ieee80211com *ic = &sc->sc_ic;
+
+#ifdef HAS_CU_SOFTMAC
+	if ((sc->sc_cu_softmac) &&
+	    (sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR)) {
+	  ath_cu_softmac_txdone_tasklet(data);
+	  return;
+	}
+#endif
 
 	/*
 	 * Process each active queue.
@@ -4709,6 +4731,14 @@ ath_tx_tasklet(TQUEUE_ARG data)
 	struct ath_softc *sc = dev->priv;
 	struct ieee80211com *ic = &sc->sc_ic;
 	int i;
+
+#ifdef HAS_CU_SOFTMAC
+	if ((sc->sc_cu_softmac) &&
+	    (sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR)) {
+	  ath_cu_softmac_txdone_tasklet(data);
+	  return;
+	}
+#endif
 
 	/*
 	 * Process each active queue.
@@ -6295,7 +6325,12 @@ ATH_SYSCTL_DECL(ath_sysctl_halparam, ctl, write, filp, buffer, lenp, ppos)
 			case ATH_CU_SOFTMAC_RAW80211:
 			  // Allow softmac to operate on the
 			  // whole 802.11 frame.
-			  sc->sc_cu_softmac_raw80211 = val;
+			  if (val) {
+			    sc->sc_cu_softmac_options |= CU_SOFTMAC_ATH_RAW_MODE;
+			  }
+			  else {
+			    sc->sc_cu_softmac_options &= ~CU_SOFTMAC_ATH_RAW_MODE;
+			  }
 			  break;
 			case ATH_CU_SOFTMAC_PHOCUS_SETTLETIME:
 			  // delay to use for phocus antenna
@@ -6433,7 +6468,12 @@ ATH_SYSCTL_DECL(ath_sysctl_halparam, ctl, write, filp, buffer, lenp, ppos)
 		  break;
 		case ATH_CU_SOFTMAC_RAW80211:
 		  // Allow softmac to operate on the whole 802.11 frame
-		  val = sc->sc_cu_softmac_raw80211;
+		  if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
+		    val = 1;
+		  }
+		  else {
+		    val = 0;
+		  }
 		  break;
 		case ATH_CU_SOFTMAC_PHOCUS_SETTLETIME:
 		  // allow phocus time to settle after steering
@@ -6952,7 +6992,7 @@ cu_softmac_schedule_work_asap_ath(CU_SOFTMAC_PHY_HANDLE nfh) {
   //struct net_device* dev = &(sc->sc_dev);
   //struct ath_hal *ah = sc->sc_ah;
   int needmark = 0;
-  //printk(KERN_ALERT "if_ath: scheduling workq\n");
+  //printk(KERN_DEBUG "if_ath: scheduling worktq\n");
   ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq,&needmark);
   if (needmark) mark_bh(IMMEDIATE_BH);
 }
@@ -7026,7 +7066,9 @@ cu_softmac_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
   int error = CU_SOFTMAC_PHY_SENDPACKET_OK;
 
   atomic_inc(&(sc->sc_cu_softmac_tx_packets_inflight));
-  skb = ath_cu_softmac_encapsulate(sc,skb);
+  if (!(sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
+    skb = ath_cu_softmac_encapsulate(sc,skb);
+  }
   if ((max_packets_inflight > 0) &&
       (max_packets_inflight < atomic_read(&(sc->sc_cu_softmac_tx_packets_inflight)))) {
     // Too many pending packets -- bail out...
@@ -7056,7 +7098,7 @@ cu_softmac_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
   }
   ATH_TXBUF_UNLOCK_BH(sc);
   if (bf == NULL) {
-    printk("ath_cusdr_sendpacket: discard, no xmit buf\n");
+    printk(KERN_DEBUG "ath_cusdr_sendpacket: discard, no xmit buf\n");
     //sc->sc_stats.ast_tx_nobufmgt++;
     error = CU_SOFTMAC_PHY_SENDPACKET_ERR_NOBUFFERS;
     goto bad;
@@ -7366,7 +7408,7 @@ ath_cu_softmac_handle_rx(struct net_device* dev,int intop) {
   //u_int phyerr;
   HAL_STATUS status;
   
-  //printk(KERN_ALERT "if_ath: in handle_rx %d\n",intop);
+  //printk(KERN_DEBUG "if_ath: in handle_rx %d\n",intop);
   DPRINTF(sc, ATH_DEBUG_RX_PROC, "%s\n", __func__);
 
   do {
@@ -7408,7 +7450,6 @@ ath_cu_softmac_handle_rx(struct net_device* dev,int intop) {
     STAILQ_REMOVE_HEAD(&sc->sc_rxbuf, bf_list);
     
     // XXX need to decide what to do with jumbograms
-    // and error frames...
     if (ds->ds_rxstat.rs_status != 0) {
       DPRINTF(sc,ATH_DEBUG_ANY,"%s: RXERR: %hx DATALEN %hd\n",__func__,(short int)ds->ds_rxstat.rs_status,ds->ds_rxstat.rs_datalen);
       if (ds->ds_rxstat.rs_status & HAL_RXERR_CRC) {
@@ -7447,12 +7488,19 @@ ath_cu_softmac_handle_rx(struct net_device* dev,int intop) {
      */
     if (0 < len) {
       // Handoff to the softmac
-      skb_put(skb, len);
-      if (ath_cu_softmac_rx(dev,skb,intop)) {
-	// Returning non-zero from here means that
-	// the softmac layer has not finished handling
-	// the packet. The softmac tasklet should execute.
-	result = 1;
+      if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_ALLOW_CRCERR) || 
+	  !(skb->cb[ATH_CU_SOFTMAC_CB_RX_CRCERR])) {
+	skb_put(skb, len);
+	if (ath_cu_softmac_rx(dev,skb,intop)) {
+	  // Returning non-zero from here means that
+	  // the softmac layer has not finished handling
+	  // the packet. The softmac tasklet should execute.
+	  result = 1;
+	}
+      }
+      else {
+	// Free packets with CRC errors
+	dev_kfree_skb_any(skb);
       }
     }
     else {
@@ -7464,16 +7512,7 @@ ath_cu_softmac_handle_rx(struct net_device* dev,int intop) {
   
 #undef IS_CTL
 #undef PA2DESC
-	return result;
-}
-
-static int
-ath_cu_softmac_rx_intr(struct net_device* dev) {
-  struct ath_softc *sc = dev->priv;
-  if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_DEFER_ALL_RX)) {
-    return 1;
-  }
-  return ath_cu_softmac_handle_rx(dev,1);
+  return result;
 }
 
 static void
@@ -7481,11 +7520,11 @@ ath_cu_softmac_rx_tasklet(TQUEUE_ARG data) {
   struct net_device *dev = (struct net_device *)data;
   struct ath_softc* sc = dev->priv;
   int goagain = 0;
-  //printk(KERN_ALERT "if_ath: in rx_tasklet\n");
+  //printk(KERN_DEBUG "if_ath: in rx_tasklet\n");
   goagain = ath_cu_softmac_handle_rx(dev,0);
   if (goagain) {
     int needmark = 0;
-    ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_rxtq,&needmark);
+    ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq,&needmark);
     if (needmark) {
       mark_bh(IMMEDIATE_BH);
     }
@@ -7502,20 +7541,26 @@ ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop) {
   // check to see if we've got a softmac plugin, defer handling to it.
   if (pfrx) {
     int rxresult = CU_SOFTMAC_MAC_NOTIFY_OK;
-    if (ath_cu_softmac_issoftmac(sc,skb)) {
+    if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
+      rxresult = (pfrx)(sc,macpriv,skb,intop);
+    }
+    else if (ath_cu_softmac_issoftmac(sc,skb)) {
       skb = ath_cu_softmac_decapsulate(sc, skb);
-      printk(KERN_ALERT "SoftMAC: Got softmac packet!\n");
+      printk(KERN_DEBUG "SoftMAC: Got softmac packet!\n");
       rxresult = (pfrx)(sc,macpriv,skb,intop);
       if (CU_SOFTMAC_MAC_NOTIFY_OK == rxresult) {
+	printk(KERN_DEBUG "SoftMAC: packet handled -- not running again\n");
 	result = 0;
       }
       else if (CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN == rxresult) {
+	printk(KERN_DEBUG "SoftMAC: packet not finished -- running again\n");
 	result = 1;
       }
       else {
 	/*
 	 * Something went wrong -- free the packet and move on.
 	 */
+	printk(KERN_DEBUG "SoftMAC: packet handling failed -- nuking\n");
 	dev_kfree_skb_any(skb);
 	result = 0;
       }
@@ -7847,31 +7892,16 @@ ath_cu_softmac_handle_txdone(struct net_device* dev, int intop) {
   return result;
 }
 
-static int
-ath_cu_softmac_txdone_intr(struct net_device* dev) {
-  int result = 0;
-  struct ath_softc* sc = dev->priv;
-
-  // If we're deferring all TX descriptor reaping, bail out and
-  // flag the bottom half for execution.
-  if (sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_DEFER_ALL_TXDONE) {
-    return 1;
-  }
-  result = ath_cu_softmac_handle_txdone(dev,1);
-  return result;
-}
-
 static void
 ath_cu_softmac_txdone_tasklet(TQUEUE_ARG data) {
-  int result = 0;
   struct net_device *dev = (struct net_device *)data;
   struct ath_softc* sc = dev->priv;
-
-  result = ath_cu_softmac_handle_txdone(dev,0);
-
-  if (result) {
+  int goagain = 0;
+  //printk(KERN_DEBUG "if_ath: in txdone_tasklet\n");
+  goagain = ath_cu_softmac_handle_txdone(dev,0);
+  if (goagain) {
     int needmark = 0;
-    ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_txdonetq,&needmark);
+    ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq,&needmark);
     if (needmark) {
       mark_bh(IMMEDIATE_BH);
     }
@@ -7886,11 +7916,14 @@ ath_cu_softmac_work_tasklet(TQUEUE_ARG data) {
   void* macpriv = sc->sc_cu_softmac_mac.mac_private;
 
   // See if we've got a "hook" function set -- run it if we do
+  printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet\n");
   if (pfwork) {
     int workresult = CU_SOFTMAC_MAC_NOTIFY_OK;
     int needmark = 0;
+    printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet: have a workfunc!\n");
     workresult = (pfwork)(sc,macpriv,0);
     if (CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN == workresult) {
+      printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet: rescheduling!\n");
       ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq,&needmark);
       if (needmark) {
 	mark_bh(IMMEDIATE_BH);
