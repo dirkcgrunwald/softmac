@@ -7546,14 +7546,14 @@ ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop) {
     }
     else if (ath_cu_softmac_issoftmac(sc,skb)) {
       skb = ath_cu_softmac_decapsulate(sc, skb);
-      printk(KERN_DEBUG "SoftMAC: Got softmac packet!\n");
+      //printk(KERN_DEBUG "SoftMAC: Got softmac packet!\n");
       rxresult = (pfrx)(sc,macpriv,skb,intop);
       if (CU_SOFTMAC_MAC_NOTIFY_OK == rxresult) {
-	printk(KERN_DEBUG "SoftMAC: packet handled -- not running again\n");
+	//printk(KERN_DEBUG "SoftMAC: packet handled -- not running again\n");
 	result = 0;
       }
       else if (CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN == rxresult) {
-	printk(KERN_DEBUG "SoftMAC: packet not finished -- running again\n");
+	//printk(KERN_DEBUG "SoftMAC: packet not finished -- running again\n");
 	result = 1;
       }
       else {
@@ -7916,14 +7916,14 @@ ath_cu_softmac_work_tasklet(TQUEUE_ARG data) {
   void* macpriv = sc->sc_cu_softmac_mac.mac_private;
 
   // See if we've got a "hook" function set -- run it if we do
-  printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet\n");
+  //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet\n");
   if (pfwork) {
     int workresult = CU_SOFTMAC_MAC_NOTIFY_OK;
     int needmark = 0;
-    printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet: have a workfunc!\n");
+    //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet: have a workfunc!\n");
     workresult = (pfwork)(sc,macpriv,0);
     if (CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN == workresult) {
-      printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet: rescheduling!\n");
+      //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet: rescheduling!\n");
       ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq,&needmark);
       if (needmark) {
 	mark_bh(IMMEDIATE_BH);
