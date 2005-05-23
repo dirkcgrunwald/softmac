@@ -33,6 +33,36 @@
  * used by MAC and PHY layers in the SoftMAC system.
  */
 
+/** \mainpage SoftMAC
+ * 
+ * \section intro_sec What is SoftMAC?
+ *
+ * A fine introduction. 
+ *
+ * \subsection netstack_sec The Network Stack
+ *
+ * \subsection softmac_component_sec SoftMAC Components
+ *
+ * \section your_own_mac_sec Creating Your Own MAC Layer
+ * 
+ * This should maybe reference the cheesymac?
+ *
+ * \section your_own_phy_sec Creating Your Own PHY Layer
+ *
+ * This should maybe reference the madwifi phy?
+ *
+ * \section your_own_netif_sec Interfacing With the OS
+ *
+ * This should reference the netif module
+ *
+ * \section existing_components_sec Existing Modules
+ *
+ * \subsection clickmac_sec Using ClickMAC
+ *
+ * \subsection remotemac_sec Using RemoteMAC
+ *
+ */
+
 /*
 **
 **
@@ -185,11 +215,6 @@ typedef struct {
   CU_SOFTMAC_PHY_FREE_SKB_FUNC cu_softmac_free_skb;
   CU_SOFTMAC_PHY_SENDPACKET_FUNC cu_softmac_sendpacket;
   CU_SOFTMAC_PHY_SENDPACKET_KEEPSKBONFAIL_FUNC cu_softmac_sendpacket_keepskbonfail;
-  /*
-   * XXX the cu_softmac_netif_rx_ether function is more related to the OS
-   * than directly to the phy layer...
-   */
-  CU_SOFTMAC_PHY_NETIF_RX_ETHER_FUNC cu_softmac_netif_rx_ether;
   CU_SOFTMAC_PHY_GET_DURATION_FUNC cu_softmac_get_duration;
   CU_SOFTMAC_PHY_GET_TXLATENCY_FUNC cu_softmac_get_txlatency;
 
@@ -212,12 +237,16 @@ typedef struct {
  * Multiple functions implemented by the PHY layer are of this type.
  */
 typedef int (*CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC)(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop);
+typedef int (*CU_SOFTMAC_MAC_PACKET_TX_FUNC)(void*,struct sk_buff* thepacket,int intop);
 typedef int (*CU_SOFTMAC_MAC_NOTIFY_FUNC)(CU_SOFTMAC_PHY_HANDLE,void*,int intop);
 typedef int (*CU_SOFTMAC_MAC_PHY_FUNC)(void*,CU_SOFTMAC_PHYLAYER_INFO*);
 typedef int (*CU_SOFTMAC_MAC_SIMPLE_FUNC)(void*);
 typedef int (*CU_SOFTMAC_MAC_INT_FUNC)(void*,int);
 typedef int (*CU_SOFTMAC_MAC_PHY_INT_FUNC)(void*,CU_SOFTMAC_PHYLAYER_INFO*,int);
-
+typedef int (*CU_SOFTMAC_MAC_RX_FUNC)(void*,struct sk_buff* packet);
+typedef int (*CU_SOFTMAC_MAC_SET_RX_FUNC_FUNC)(void*,CU_SOFTMAC_MAC_RX_FUNC,void*);
+typedef void (*CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC)(void*);
+typedef int (*CU_SOFTMAC_MAC_SET_UNLOAD_NOTIFY_FUNC_FUNC)(void*,CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC,void*);
 /**
  * @brief Status codes returned by the MAC layer when receiving
  * a notification from the SoftMAC PHY
@@ -242,6 +271,11 @@ enum {
   CU_SOFTMAC_MAC_NOTIFY_HOSED = 3,
 };
 
+enum {
+  CU_SOFTMAC_MAC_TX_OK = 0,
+  CU_SOFTMAC_MAC_TX_FAIL = -1,
+};
+
 /**
  * @brief Functions/data exported by a MAC layer implementation.
  */
@@ -249,7 +283,7 @@ typedef struct CU_SOFTMAC_MACLAYER_INFO_t {
   /**
    * @brief Called when an ethernet-encapsulated packet is ready to transmit.
    */
-  CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC cu_softmac_mac_packet_tx;
+  CU_SOFTMAC_MAC_PACKET_TX_FUNC cu_softmac_mac_packet_tx;
   /**
    * @brief Called when transmission of a packet is complete.
    */
@@ -262,7 +296,8 @@ typedef struct CU_SOFTMAC_MACLAYER_INFO_t {
   CU_SOFTMAC_MAC_NOTIFY_FUNC cu_softmac_mac_detach;
   CU_SOFTMAC_MAC_PHY_FUNC cu_softmac_mac_attach_to_phy;
   CU_SOFTMAC_MAC_SIMPLE_FUNC cu_softmac_mac_detach_from_phy;
-  u_int32_t options;
+  CU_SOFTMAC_MAC_SET_RX_FUNC_FUNC cu_softmac_mac_set_rx_func;
+  CU_SOFTMAC_MAC_SET_UNLOAD_NOTIFY_FUNC_FUNC cu_softmac_mac_set_unload_notify_func;
   void* mac_private;
 } CU_SOFTMAC_MACLAYER_INFO;
 
