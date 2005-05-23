@@ -548,6 +548,7 @@ static void __exit softmac_cheesymac_exit(void)
   /*
    * Tell any/all softmac PHY layers that we're leaving
    */
+  spin_lock(&cheesymac_global_lock);
   if (!list_empty(&cheesymac_instance_list)) {
     printk(KERN_DEBUG "CheesyMAC: Deleting instances\n");
     CHEESYMAC_INSTANCE* cheesy_instance = 0;
@@ -561,7 +562,9 @@ static void __exit softmac_cheesymac_exit(void)
     list_for_each_safe(p,tmp,&cheesymac_instance_list) {
       cheesy_instance = list_entry(p,CHEESYMAC_INSTANCE,list);
       printk(KERN_DEBUG "CheesyMAC: Detaching and destroying instance ID %d\n",cheesy_instance->instanceid);
+      list_del(p);
       cu_softmac_cheesymac_destroy_instance(cheesy_instance);
+      kfree(cheesy_instance);
     }
   }
   else {
@@ -573,7 +576,9 @@ static void __exit softmac_cheesymac_exit(void)
    */
   if (cheesymac_procfsroot_handle) {
     remove_proc_entry(cheesymac_procfsroot,0);
+    cheesymac_procfsroot_handle = 0;
   }
+  spin_unlock(&cheesymac_global_lock);
 }
 
 static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst,
@@ -588,9 +593,10 @@ static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst,
   }
 }
 
-/*
+/**
+ * \brief Implementation of "cu_softmac_mac_packet_tx"
  * cu_softmac_mac_packet_tx_cheesymac
- * Implementation of "cu_softmac_mac_packet_tx"
+ *
  */
 static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
 					      struct sk_buff* packet,
@@ -600,7 +606,7 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
   int status = CU_SOFTMAC_MAC_TX_OK;
   int txresult = CU_SOFTMAC_PHY_SENDPACKET_OK;
 
-  if (inst) {
+  if (inst && inst->attached_to_phy) {
     read_lock(&(inst->mac_busy));
     nfh = inst->myphy.phyhandle;
     /*
@@ -680,7 +686,7 @@ static int cu_softmac_mac_packet_tx_done_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
   int status = CU_SOFTMAC_MAC_NOTIFY_OK;
   CHEESYMAC_INSTANCE* inst = mydata;
 
-  if (inst) {
+  if (inst && inst->attached_to_phy) {
     read_lock(&(inst->mac_busy));
     /*
      * Check to see if we're supposed to defer handling
@@ -732,16 +738,17 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
   CHEESYMAC_INSTANCE* inst = mydata;
   int status = CU_SOFTMAC_MAC_NOTIFY_OK;
 
+  // XXX check to see if MAC is active...
   if (inst) {
     read_lock(&(inst->mac_busy));
-    printk(KERN_DEBUG "cheesymac: packet rx\n");
+    //printk(KERN_DEBUG "cheesymac: packet rx\n");
     if (intop) {
-      printk(KERN_DEBUG "cheesymac: packet rx in top\n");
+      //printk(KERN_DEBUG "cheesymac: packet rx in top\n");
       if (inst->deferrx && packet) {
 	/*
 	 * Queue packet for later processing
 	 */
-	printk(KERN_DEBUG "cheesymac: packet rx deferring\n");
+	//printk(KERN_DEBUG "cheesymac: packet rx deferring\n");
 	skb_queue_tail(&(inst->rx_skbqueue),packet);
 	status = CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN;
       }
@@ -751,11 +758,11 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
 	 * an attached rxfunc, otherwise whack the packet.
 	 */
 	if (inst->myrxfunc) {
-	  printk(KERN_DEBUG "cheesymac: packet rx -- calling receive\n");
+	  //printk(KERN_DEBUG "cheesymac: packet rx -- calling receive\n");
 	  (inst->myrxfunc)(inst->myrxfunc_priv,packet);
 	}
 	else if (inst->myphy.cu_softmac_free_skb) {
-	  printk(KERN_DEBUG "cheesymac: packet rx -- freeing skb\n");
+	  //printk(KERN_DEBUG "cheesymac: packet rx -- freeing skb\n");
 	  (inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,packet);
 	}
 	else {
@@ -770,18 +777,18 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
        * Not in top half - walk our rx queue and send packets
        * up the stack
        */
-      printk(KERN_DEBUG "cheesymac: packet rx -- bottom half\n");
+      //printk(KERN_DEBUG "cheesymac: packet rx -- bottom half\n");
       if (packet) {
-	printk(KERN_DEBUG "cheesymac: packet rx -- queueing\n");
+	//printk(KERN_DEBUG "cheesymac: packet rx -- queueing\n");
 	skb_queue_tail(&(inst->rx_skbqueue),packet);
       }
       while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
 	if (inst->myrxfunc) {
-	  printk(KERN_DEBUG "cheesymac: have rxfunc -- receiving\n");
+	  //printk(KERN_DEBUG "cheesymac: have rxfunc -- receiving\n");
 	  (inst->myrxfunc)(inst->myrxfunc_priv,packet);
 	}
 	else {
-	  printk(KERN_DEBUG "cheesymac: packet rx -- no rxfunc freeing skb\n");
+	  //printk(KERN_DEBUG "cheesymac: packet rx -- no rxfunc freeing skb\n");
 	  (inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,packet);
 	}
       }
@@ -805,6 +812,20 @@ static int cu_softmac_mac_work_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
     int txresult;
     struct sk_buff* skb = 0;
     /*
+     * Walk our receive queue, pumping packets up to the system as we go...
+     */
+    while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
+      if (inst->myrxfunc) {
+	//printk(KERN_DEBUG "cheesymac: have rxfunc -- receiving\n");
+	(inst->myrxfunc)(inst->myrxfunc_priv,skb);
+      }
+      else {
+	//printk(KERN_DEBUG "cheesymac: packet rx -- no rxfunc freeing skb\n");
+	(inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,skb);
+      }
+    }
+
+    /*
      * Walk our transmit queue, shovelling out packets as we go...
      */
     while ((skb = skb_dequeue(&(inst->tx_skbqueue)))) {
@@ -813,6 +834,13 @@ static int cu_softmac_mac_work_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
       if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
 	printk(KERN_ALERT "SoftMAC CheesyMAC: work packet tx failed: %d\n",txresult);
       }
+    }
+
+    /*
+     * Walk through the "transmit done" queue, freeing packets as we go...
+     */
+    while ((skb = skb_dequeue(&(inst->txdone_skbqueue)))) {
+      (inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,skb);
     }
   }
   else {
@@ -866,7 +894,6 @@ int cu_softmac_cheesymac_destroy_instance(void* mypriv) {
     /*
      * Detach/delete this cheesymac instance
      */
-    list_del(&(inst->list));
     cheesymac_cleanup_instance(inst);
 
     kfree(inst);
@@ -1002,7 +1029,10 @@ static int cheesymac_delete_procfs_entries(CHEESYMAC_INSTANCE* inst) {
     /*
      * Lastly, remove the directory
      */
-    remove_proc_entry(inst->procdirname,inst->my_procfs_root);
+    if (inst->my_procfs_root) {
+      remove_proc_entry(inst->procdirname,inst->my_procfs_root);
+      inst->my_procfs_root = 0;
+    }
   }
   return result;
 }
@@ -1257,7 +1287,9 @@ cu_softmac_mac_detach_from_phy_cheesymac(void* handle) {
        * Explicitly force the phy layer to detach us.
        */
       printk(KERN_DEBUG "SoftMAC CheesyMAC: About to call phy detach\n");
-      (inst->myphy.cu_softmac_detach_mac)(inst->myphy.phyhandle,inst);
+      if (inst->myphy.cu_softmac_detach_mac) {
+	(inst->myphy.cu_softmac_detach_mac)(inst->myphy.phyhandle,inst);
+      }
       printk(KERN_DEBUG "SoftMAC CheesyMAC: Returned from phy detach\n");
     }
   }
@@ -1336,7 +1368,6 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst) {
   while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
     (inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,skb);
   }
-
 
   write_unlock(&(inst->mac_busy));
 
