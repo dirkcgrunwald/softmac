@@ -1760,21 +1760,22 @@ ath_start(struct sk_buff *skb, struct net_device *dev)
 	int ret = 0;
 	int counter = 0;
 
-#ifdef HAS_CU_SOFTMAC
-	// Keep packets out of the device if it isn't up OR it's
-	// been appropriated by the SoftMAC
-	if ((sc->sc_dev.flags & IFF_RUNNING) == 0 || sc->sc_invalid ||
-	    sc->sc_cu_softmac) {
-#else
 	if ((dev->flags & IFF_RUNNING) == 0 || sc->sc_invalid) {
-#endif
+
 		DPRINTF(sc, ATH_DEBUG_XMIT,
 			"%s: discard, invalid %d flags %x\n",
 			__func__, sc->sc_invalid, dev->flags);
 		sc->sc_stats.ast_tx_invalid++;
 		return -ENETDOWN;
 	}
-	
+#ifdef HAS_CU_SOFTMAC
+	else if (sc->sc_cu_softmac) {
+	  // Keep packets out of the device when in softmac mode
+	  dev_kfree_skb_any(skb);
+	  return 0;
+	}
+
+#endif	
 	for (;;) {
 		/*
 		 * Grab a TX buffer and associated resources.
@@ -6956,10 +6957,10 @@ void
 cu_softmac_detach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv) {
   // XXX perform a sanity check
   struct ath_softc *sc = (struct ath_softc*) nfh;
-  printk(KERN_DEBUG "SoftMAC MADWIFI: About to detach MAC -- getting lock\n");
-  spin_lock(&(sc->sc_cu_softmac_mac_lock));
   CU_SOFTMAC_MACLAYER_INFO mactmp;
 
+  printk(KERN_DEBUG "SoftMAC MADWIFI: About to detach MAC -- getting lock\n");
+  spin_lock(&(sc->sc_cu_softmac_mac_lock));
   printk(KERN_DEBUG "SoftMAC MADWIFI: About to detach MAC\n");
   memcpy(&mactmp,&(sc->sc_cu_softmac_mac),sizeof(CU_SOFTMAC_MACLAYER_INFO));
   memset(&(sc->sc_cu_softmac_mac),0,sizeof(CU_SOFTMAC_MACLAYER_INFO));
@@ -6982,7 +6983,8 @@ cu_softmac_set_time_ath(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t curtime) {
   struct ath_softc *sc = (struct ath_softc*) nfh;
   //struct net_device* dev = &(sc->sc_dev);
   struct ath_hal *ah = sc->sc_ah;
-  u_int64_t mytsf = ath_hal_gettsf64(ah);
+  u_int64_t mytsf = 0;
+  mytsf = ath_hal_gettsf64(ah);
   sc->sc_cu_softmac_zerotime = mytsf - curtime;
 }
 
@@ -7316,13 +7318,15 @@ ath_alloc_skb(u_int size, u_int align)
 
 static unsigned char
 ath_cu_softmac_tag_cb(struct ath_softc* sc,struct ath_desc* ds,struct sk_buff* skb) {
-  unsigned char cbtype = ath_cu_softmac_getheadertype_cb(sc,skb);
+  unsigned char cbtype = 0;
+  // RX timestamp
+  u_int64_t tsf = 0;
+
+  cbtype = ath_cu_softmac_getheadertype_cb(sc,skb);
   // tag the packet with the divined header type, bitrate, timestamp,
   // CRC error status...
   skb->cb[ATH_CU_SOFTMAC_CB_HEADER_TYPE] = cbtype;
-
-  // RX timestamp
-  u_int64_t tsf = ath_hal_gettsf64(sc->sc_ah);
+  tsf = ath_hal_gettsf64(sc->sc_ah);
   if ((tsf & 0x7fff) < ds->ds_rxstat.rs_tstamp)
     tsf -= 0x8000;
   *((u_int64_t*)(skb->cb+ATH_CU_SOFTMAC_CB_RXTSF0)) =
