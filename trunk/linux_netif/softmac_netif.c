@@ -166,7 +166,7 @@ cu_softmac_netif_create_eth(char* name,unsigned char* macaddr,
 void
 cu_softmac_netif_detach(CU_SOFTMAC_NETIF_HANDLE nif) {
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
-  if (inst){
+  if (inst) {
     write_lock(&(inst->devlock));
     inst->unloadfunc = 0;
     inst->unloadfunc_priv = 0;
@@ -182,7 +182,7 @@ cu_softmac_netif_detach(CU_SOFTMAC_NETIF_HANDLE nif) {
 void
 cu_softmac_netif_set_unload_callback(CU_SOFTMAC_NETIF_HANDLE nif,CU_SOFTMAC_NETIF_SIMPLE_NOTIFY_FUNC unloadfunc,void* unloadpriv) {
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
-  if (inst){
+  if (inst) {
     write_lock(&(inst->devlock));
     inst->unloadfunc = unloadfunc;
     inst->unloadfunc_priv = unloadpriv;
@@ -197,15 +197,8 @@ void
 cu_softmac_netif_destroy(CU_SOFTMAC_NETIF_HANDLE nif) {
   CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
   if (inst) {
-    printk(KERN_DEBUG "cu_softmac_netif_destroy: removing from list\n");
-    write_lock(&(inst->devlock));
-    list_del(&(inst->list));
-    write_unlock(&(inst->devlock));
-    printk(KERN_DEBUG "cu_softmac_netif_destroy: removed from list\n");
+    printk(KERN_DEBUG "cu_softmac_netif_destroy: deactivating netif\n");
     softmac_netif_cleanup_instance(inst);
-    kfree(inst);
-    inst = 0;
-    nif = 0;
   }
 }
 
@@ -422,7 +415,11 @@ static void __exit softmac_netif_exit(void)
     list_for_each_safe(p,tmp,&softmac_netif_instance_list) {
       netif_instance = list_entry(p,CU_SOFTMAC_NETIF_INSTANCE,list);
       printk(KERN_DEBUG "SoftMAC netif: Detaching and destroying instance %p\n",netif_instance);
+      write_lock(&(netif_instance->devlock));
+      list_del(&(netif_instance->list));
+      write_unlock(&(netif_instance->devlock));
       cu_softmac_netif_destroy(netif_instance);
+      kfree(netif_instance);
       netif_instance = 0;
     }
   }
