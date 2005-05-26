@@ -7539,19 +7539,18 @@ static int
 ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop) {
   struct ath_softc* sc = dev->priv;
   int result = 0;
-  CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC pfrx = sc->sc_cu_softmac_mac.cu_softmac_mac_packet_rx;
   void* macpriv = sc->sc_cu_softmac_mac.mac_private;
 
   // check to see if we've got a softmac plugin, defer handling to it.
-  if (pfrx) {
+  if (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_rx) {
     int rxresult = CU_SOFTMAC_MAC_NOTIFY_OK;
     if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
-      rxresult = (pfrx)(sc,macpriv,skb,intop);
+      rxresult = (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_rx)(sc,macpriv,skb,intop);
     }
     else if (ath_cu_softmac_issoftmac(sc,skb)) {
       skb = ath_cu_softmac_decapsulate(sc, skb);
       //printk(KERN_DEBUG "SoftMAC: Got softmac packet!\n");
-      rxresult = (pfrx)(sc,macpriv,skb,intop);
+      rxresult = (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_rx)(sc,macpriv,skb,intop);
       if (CU_SOFTMAC_MAC_NOTIFY_OK == rxresult) {
 	//printk(KERN_DEBUG "SoftMAC: packet handled -- not running again\n");
 	result = 0;
@@ -7813,12 +7812,10 @@ ath_cu_softmac_handle_txdone(struct net_device* dev, int intop) {
   struct ath_desc *ds = 0;
   struct sk_buff* skb = 0;
   struct ath_hal *ah = sc->sc_ah;
-  CU_SOFTMAC_MAC_NOTIFY_PACKET_FUNC pftxdone = 0;
   void* macpriv = 0;
   int i;
   int result = 0;
   int status;
-  pftxdone = sc->sc_cu_softmac_mac.cu_softmac_mac_packet_tx_done;
   macpriv = sc->sc_cu_softmac_mac.mac_private;
   /*
    * Process each active queue.
@@ -7856,8 +7853,8 @@ ath_cu_softmac_handle_txdone(struct net_device* dev, int intop) {
 	atomic_dec(&(sc->sc_cu_softmac_tx_packets_inflight));
 	skb = bf->bf_skb;
 
-	if (pftxdone) {
-	  int txdoneresult = (pftxdone)(dev,macpriv,skb,intop);
+	if (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_tx_done) {
+	  int txdoneresult = (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_tx_done)(dev,macpriv,skb,intop);
 	  if (CU_SOFTMAC_MAC_NOTIFY_OK == txdoneresult) {
 	    result = 0;
 	  }
@@ -7916,16 +7913,15 @@ static void
 ath_cu_softmac_work_tasklet(TQUEUE_ARG data) {
   struct net_device *dev = (struct net_device *)data;
   struct ath_softc *sc = dev->priv;
-  CU_SOFTMAC_MAC_NOTIFY_FUNC pfwork = sc->sc_cu_softmac_mac.cu_softmac_mac_work;
   void* macpriv = sc->sc_cu_softmac_mac.mac_private;
 
   // See if we've got a "hook" function set -- run it if we do
   //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet\n");
-  if (pfwork) {
+  if (sc->sc_cu_softmac_mac.cu_softmac_mac_work) {
     int workresult = CU_SOFTMAC_MAC_NOTIFY_OK;
     int needmark = 0;
     //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet: have a workfunc!\n");
-    workresult = (pfwork)(sc,macpriv,0);
+    workresult = (sc->sc_cu_softmac_mac.cu_softmac_mac_work)(sc,macpriv,0);
     if (CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN == workresult) {
       //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet: rescheduling!\n");
       ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq,&needmark);
