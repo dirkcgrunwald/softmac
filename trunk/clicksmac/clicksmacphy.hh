@@ -148,9 +148,9 @@ ClickSMACPHY::GetTransmitLatency() {
 }
 
 
-//
-// SoftMAC MAC shim functions
-//
+////
+//// SoftMAC MAC shim functions
+////
 int
 ClickSMACPHY::cu_softmac_mac_packet_tx_done(CU_SOFTMAC_PHY_HANDLE ph,void* me,struct sk_buff* thepacket,int intop) {
   ClickSMACPHY* obj = me;
@@ -169,6 +169,9 @@ ClickSMACPHY::cu_softmac_mac_work(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop) {
   return CU_SOFTMAC_MAC_NOTIFY_OK;
 }
 
+//
+// Notification that the MAC layer is being detached from the PHY
+//
 int
 ClickSMACPHY::cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop) {
   ClickSMACPHY* obj = me;
@@ -176,70 +179,117 @@ ClickSMACPHY::cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop)
   init_softmac_phyinfo(&obj->_phyinfo);
 }
 
+//
+// Attach to a PHY layer
+//
 int
 ClickSMACPHY::cu_softmac_mac_attach_to_phy(void* me,CU_SOFTMAC_PHYLAYER_INFO* phy) {
   ClickSMACPHY* obj = me;
 }
 
+//
+// Detach from the current PHY layer
+//
 int
 ClickSMACPHY::cu_softmac_mac_detach_from_phy(void* me) {
+  ClickSMACPHY* obj = me;
 }
 
+//
+// Set the function to call when receiving a packet.
+// Not used in this iteration of the shim layer -- callback
+// is handled directly using the packet notify thing.
+//
 int
 ClickSMACPHY::cu_softmac_mac_set_rx_func(void* me,CU_SOFTMAC_MAC_RX_FUNC rxfunc,void* rxfuncpriv) {
 }
 
+//
+// Set the function to call when we unload the MAC layer. Typically
+// this is the higher level OS network layer abstraction. Not clear
+// at moment if we'll be using this or not in this context...
+//
 int
 ClickSMACPHY::cu_softmac_mac_set_unload_notify_func(void* me,CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC unloadfunc,void* unloadfuncpriv) {
 }
 
-//
-// Bank of "do nothing" PHY functions
-//
+////
+//// Bank of "do nothing" PHY functions
+////
+
 void
 ClickSMACPHY::cu_softmac_attach_mac(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo) {
+  // Do nothing...
 }
 
 void
 ClickSMACPHY::cu_softmac_detach_mac(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv) {
+  // Do nothing...
 }
 
 u_int64_t
 ClickSMACPHY::cu_softmac_get_time(CU_SOFTMAC_PHY_HANDLE nfh) {
+  return 0;
 }
 
 void
 ClickSMACPHY::cu_softmac_set_time(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t time) {
+  // Do nothing...
 }
 
 void
 ClickSMACPHY::cu_softmac_schedule_work_asap(CU_SOFTMAC_PHY_HANDLE nfh) {
+  // Do nothing...
 }
 
 struct sk_buff*
 ClickSMACPHY::cu_softmac_alloc_skb(CU_SOFTMAC_PHY_HANDLE nfh,int datalen) {
+  return 0;
 }
 
 void
-ClickSMACPHY::cu_softmac_free_skb(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff*) {
+ClickSMACPHY::cu_softmac_free_skb(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
+  // Free the packet if it's not null -- not technically "nothing" but
+  // may prevent some memory leakage in corner cases.
+  if (skb) {
+    dev_kfree_skb_any(skb);
+  }
+  
 }
 
 int
 ClickSMACPHY::cu_softmac_sendpacket(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb) {
+  // Free the packet if it's not null -- not technically "nothing" but
+  // may prevent some memory leakage in corner cases.
+  if (skb) {
+    dev_kfree_skb_any(skb);
+  }
+  return CU_SOFTMAC_PHY_SENDPACKET_OK;
 }
 
 int
 ClickSMACPHY::cu_softmac_sendpacket_keepskbonfail(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb) {
+  // Free the packet if it's not null -- not technically "nothing" but
+  // may prevent some memory leakage in corner cases.
+  if (skb) {
+    dev_kfree_skb_any(skb);
+  }
+  return CU_SOFTMAC_PHY_SENDPACKET_OK;
 }
 
 u_int32_t
 ClickSMACPHY::cu_softmac_get_duration(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
+  return 0;
 }
 
 u_int32_t
 ClickSMACPHY::cu_softmac_get_txlatency(CU_SOFTMAC_PHY_HANDLE nfh) {
+  return 0;
 }
 
+//
+// Set the phylayer info struct to contain our "null" functions
+//
 void
 ClickSMACPHY::init_softmac_phyinfo(CU_SOFTMAC_PHYLAYER_INFO* pinfo) {
   memset(pinfo,0,sizeof(pinfo));
