@@ -65,8 +65,6 @@ public:
   };
   
 protected:
-  String _phytype;
-  String _phyid;
 
   // This opaque pointer is an attempt to limit dependencies on OS and SoftMAC
   // header files to clicksmacphy.cc and specific PHY layer classes.

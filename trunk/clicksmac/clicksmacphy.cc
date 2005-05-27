@@ -24,10 +24,19 @@
  */
 
 #include <click/config.h>
-#include "clicksmacphy.hh"
-#include "clicksmacphy_glue.hh"
 #include <click/error.hh>
 #include <click/glue.hh>
+
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/stat.h>
+#include <linux/skbuff.h>
+#include <linux/netdevice.h>
+
+#include "cu_softmac_ath.h"
+
+#include "clicksmacphy.hh"
+#include "clicksmacphy_glue.hh"
 CLICK_DECLS
 
 ////
@@ -309,4 +318,3 @@ ClickSMACPHY_glue::init_softmac_phyinfo(CU_SOFTMAC_PHYLAYER_INFO* pinfo) {
 
 
 CLICK_ENDDECLS
-EXPORT_ELEMENT(ClickSMACPHY)
