@@ -81,6 +81,7 @@ protected:
 ClickSMACPHY::ClickSMACPHY()
   : Element(0, 0)
 {
+  _softmac_glue = new ClickSMACPHY_glue();
 }
 
 ClickSMACPHY::~ClickSMACPHY()
@@ -171,6 +172,15 @@ ClickSMACPHY::SetPacketTxDoneSink(PacketEventSink* psink) {
 //// ClickSMACPHY_glue implementation
 //// SoftMAC MAC shim functions
 ////
+
+ClickSMACPHY_glue::ClickSMACPHY_glue() {
+  init_softmac_phyinfo(&_phyinfo);
+  // XXX init the _macinfo stuct as well...
+}
+
+ClickSMACPHY_glue::~ClickSMACPHY_glue() {
+}
+
 int
 ClickSMACPHY_glue::cu_softmac_mac_packet_tx_done(CU_SOFTMAC_PHY_HANDLE ph,void* me,struct sk_buff* thepacket,int intop) {
   ClickSMACPHY_glue* obj = me;
@@ -333,4 +343,4 @@ ClickSMACPHY_glue::init_softmac_phyinfo(CU_SOFTMAC_PHYLAYER_INFO* pinfo) {
 
 
 CLICK_ENDDECLS
-EXPORT_ELEMENT(EtherEncap)
+EXPORT_ELEMENT(ClickSMACPHY)
