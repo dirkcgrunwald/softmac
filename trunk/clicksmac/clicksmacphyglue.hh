@@ -1,10 +1,10 @@
-#ifndef CLICK_CLICKSMACPHY_GLUE_HH
-#define CLICK_CLICKSMACPHY_GLUE_HH
+#ifndef CLICK_CLICKSMACPHYGLUE_HH
+#define CLICK_CLICKSMACPHYGLUE_HH
 #include <click/element.hh>
 #include "cu_softmac_api.h"
 CLICK_DECLS
 
-class ClickSMACPHY_glue {
+class ClickSMACPHYglue {
 
   friend class ClickSMACPHY;
 

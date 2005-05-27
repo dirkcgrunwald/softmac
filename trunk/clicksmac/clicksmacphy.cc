@@ -36,7 +36,7 @@
 #include "cu_softmac_ath.h"
 
 #include "clicksmacphy.hh"
-#include "clicksmacphy_glue.hh"
+#include "clicksmacphyglue.hh"
 CLICK_DECLS
 
 ////
@@ -44,7 +44,7 @@ CLICK_DECLS
 ////
 
 ClickSMACPHY::ClickSMACPHY() {
-  _softmac_glue = new ClickSMACPHY_glue();
+  _softmac_glue = new ClickSMACPHYglue();
 }
 
 ClickSMACPHY::~ClickSMACPHY() {
@@ -106,35 +106,35 @@ ClickSMACPHY::SetPacketTxDoneSink(PacketEventSink* psink) {
 }
 
 ////
-//// ClickSMACPHY_glue implementation
+//// ClickSMACPHYglue implementation
 //// SoftMAC MAC shim functions
 ////
 
-ClickSMACPHY_glue::ClickSMACPHY_glue() {
+ClickSMACPHYglue::ClickSMACPHYglue() {
   init_softmac_phyinfo(&_phyinfo);
   init_softmac_macinfo(&_macinfo);
 }
 
-ClickSMACPHY_glue::~ClickSMACPHY_glue() {
+ClickSMACPHYglue::~ClickSMACPHYglue() {
   // Make sure we're detached from any phy layer we're on...
   cu_softmac_mac_detach_from_phy(this);
 }
 
 int
-ClickSMACPHY_glue::cu_softmac_mac_packet_tx_done(CU_SOFTMAC_PHY_HANDLE ph,void* me,struct sk_buff* thepacket,int intop) {
-  ClickSMACPHY_glue* obj = me;
+ClickSMACPHYglue::cu_softmac_mac_packet_tx_done(CU_SOFTMAC_PHY_HANDLE ph,void* me,struct sk_buff* thepacket,int intop) {
+  ClickSMACPHYglue* obj = me;
   obj->_packettxdonesink->PacketEvent(Packet::make(thepacket));
 }
 
 int
-ClickSMACPHY_glue::cu_softmac_mac_packet_rx(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop) {
-  ClickSMACPHY_glue* obj = me;
+ClickSMACPHYglue::cu_softmac_mac_packet_rx(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop) {
+  ClickSMACPHYglue* obj = me;
   obj->_packetrxsink->PacketEvent(Packet::make(thepacket));
 }
 
 int
-ClickSMACPHY_glue::cu_softmac_mac_work(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop) {
-  ClickSMACPHY_glue* obj = me;
+ClickSMACPHYglue::cu_softmac_mac_work(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop) {
+  ClickSMACPHYglue* obj = me;
   // XXX do nothing right now -- may want to add a hook for this later
   return CU_SOFTMAC_MAC_NOTIFY_OK;
 }
@@ -143,8 +143,8 @@ ClickSMACPHY_glue::cu_softmac_mac_work(CU_SOFTMAC_PHY_HANDLE ph,void* me,int int
 // Notification that the MAC layer is being detached from the PHY
 //
 int
-ClickSMACPHY_glue::cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop) {
-  ClickSMACPHY_glue* obj = me;
+ClickSMACPHYglue::cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop) {
+  ClickSMACPHYglue* obj = me;
   // The phy layer is going away -- reset _phyinfo to "null" state
   init_softmac_phyinfo(&obj->_phyinfo);
 }
@@ -153,17 +153,17 @@ ClickSMACPHY_glue::cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE ph,void* me,int i
 // Attach to a PHY layer
 //
 int
-ClickSMACPHY_glue::cu_softmac_mac_attach_to_phy(void* me,CU_SOFTMAC_PHYLAYER_INFO* phy) {
-  ClickSMACPHY_glue* obj = me;
+ClickSMACPHYglue::cu_softmac_mac_attach_to_phy(void* me,CU_SOFTMAC_PHYLAYER_INFO* phy) {
+  ClickSMACPHYglue* obj = me;
   // XXX check to see if we're already attached to something?
   // XXX spinlock or something?
   memcpy(&obj->_phyinfo,phy,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
-  click_chatter("ClickSMACPHY_glue: attaching to PHY...\n");
+  click_chatter("ClickSMACPHYglue: attaching to PHY...\n");
   if (!(obj->_phyinfo.cu_softmac_attach_mac)(obj->_phyinfo.phyhandle,obj)) {
-    click_chatter("ClickSMACPHY_glue: attached to PHY\n");
+    click_chatter("ClickSMACPHYglue: attached to PHY\n");
   }
   else {
-    click_chatter("ClickSMACPHY_glue: attach to PHY failed!\n");
+    click_chatter("ClickSMACPHYglue: attach to PHY failed!\n");
   }
 }
 
@@ -171,11 +171,11 @@ ClickSMACPHY_glue::cu_softmac_mac_attach_to_phy(void* me,CU_SOFTMAC_PHYLAYER_INF
 // Detach from the current PHY layer
 //
 int
-ClickSMACPHY_glue::cu_softmac_mac_detach_from_phy(void* me) {
-  ClickSMACPHY_glue* obj = me;
+ClickSMACPHYglue::cu_softmac_mac_detach_from_phy(void* me) {
+  ClickSMACPHYglue* obj = me;
   result = 0;
 
-  click_chatter("ClickSMACPHY_glue: detaching from PHY\n");
+  click_chatter("ClickSMACPHYglue: detaching from PHY\n");
   (obj->_phyinfo.cu_softmac_detach_mac)(obj->_phyinfo.phyhandle,obj);
 
   return result;
@@ -187,8 +187,8 @@ ClickSMACPHY_glue::cu_softmac_mac_detach_from_phy(void* me) {
 // is handled directly using the packet notify thing.
 //
 int
-ClickSMACPHY_glue::cu_softmac_mac_set_rx_func(void* me,CU_SOFTMAC_MAC_RX_FUNC rxfunc,void* rxfuncpriv) {
-  ClickSMACPHY_glue* obj = me;
+ClickSMACPHYglue::cu_softmac_mac_set_rx_func(void* me,CU_SOFTMAC_MAC_RX_FUNC rxfunc,void* rxfuncpriv) {
+  ClickSMACPHYglue* obj = me;
 }
 
 //
@@ -197,15 +197,15 @@ ClickSMACPHY_glue::cu_softmac_mac_set_rx_func(void* me,CU_SOFTMAC_MAC_RX_FUNC rx
 // at moment if we'll be using this or not in this context...
 //
 int
-ClickSMACPHY_glue::cu_softmac_mac_set_unload_notify_func(void* me,CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC unloadfunc,void* unloadfuncpriv) {
-  ClickSMACPHY_glue* obj = me;
+ClickSMACPHYglue::cu_softmac_mac_set_unload_notify_func(void* me,CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC unloadfunc,void* unloadfuncpriv) {
+  ClickSMACPHYglue* obj = me;
 }
 
 //
 // Set the maclayer info struct to contain our shim functions
 //
 void
-ClickSMACPHY_glue::init_softmac_macinfo(CU_SOFTMAC_MACLAYER_INFO* macinfo) {
+ClickSMACPHYglue::init_softmac_macinfo(CU_SOFTMAC_MACLAYER_INFO* macinfo) {
   memset(macinfo,0,sizeof(macinfo));
   //macinfo->cu_softmac_mac_packet_tx = cu_softmac_mac_packet_tx_cheesymac;
   macinfo->cu_softmac_mac_packet_tx_done = cu_softmac_mac_packet_tx_done;
@@ -221,43 +221,43 @@ ClickSMACPHY_glue::init_softmac_macinfo(CU_SOFTMAC_MACLAYER_INFO* macinfo) {
 
 
 ////
-//// ClickSMACPHY_glue implementation
+//// ClickSMACPHYglue implementation
 //// Bank of "do nothing" PHY functions
 ////
 
 int
-ClickSMACPHY_glue::cu_softmac_attach_mac(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo) {
+ClickSMACPHYglue::cu_softmac_attach_mac(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo) {
   // Do nothing...
   return -1;
 }
 
 void
-ClickSMACPHY_glue::cu_softmac_detach_mac(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv) {
+ClickSMACPHYglue::cu_softmac_detach_mac(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv) {
   // Do nothing...
 }
 
 u_int64_t
-ClickSMACPHY_glue::cu_softmac_get_time(CU_SOFTMAC_PHY_HANDLE nfh) {
+ClickSMACPHYglue::cu_softmac_get_time(CU_SOFTMAC_PHY_HANDLE nfh) {
   return 0;
 }
 
 void
-ClickSMACPHY_glue::cu_softmac_set_time(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t time) {
+ClickSMACPHYglue::cu_softmac_set_time(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t time) {
   // Do nothing...
 }
 
 void
-ClickSMACPHY_glue::cu_softmac_schedule_work_asap(CU_SOFTMAC_PHY_HANDLE nfh) {
+ClickSMACPHYglue::cu_softmac_schedule_work_asap(CU_SOFTMAC_PHY_HANDLE nfh) {
   // Do nothing...
 }
 
 struct sk_buff*
-ClickSMACPHY_glue::cu_softmac_alloc_skb(CU_SOFTMAC_PHY_HANDLE nfh,int datalen) {
+ClickSMACPHYglue::cu_softmac_alloc_skb(CU_SOFTMAC_PHY_HANDLE nfh,int datalen) {
   return 0;
 }
 
 void
-ClickSMACPHY_glue::cu_softmac_free_skb(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
+ClickSMACPHYglue::cu_softmac_free_skb(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
   // Free the packet if it's not null -- not technically "nothing" but
   // may prevent some memory leakage in corner cases.
   if (skb) {
@@ -267,7 +267,7 @@ ClickSMACPHY_glue::cu_softmac_free_skb(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff*
 }
 
 int
-ClickSMACPHY_glue::cu_softmac_sendpacket(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb) {
+ClickSMACPHYglue::cu_softmac_sendpacket(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb) {
   // Free the packet if it's not null -- not technically "nothing" but
   // may prevent some memory leakage in corner cases.
   if (skb) {
@@ -277,7 +277,7 @@ ClickSMACPHY_glue::cu_softmac_sendpacket(CU_SOFTMAC_PHY_HANDLE nfh,int max_packe
 }
 
 int
-ClickSMACPHY_glue::cu_softmac_sendpacket_keepskbonfail(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb) {
+ClickSMACPHYglue::cu_softmac_sendpacket_keepskbonfail(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb) {
   // Free the packet if it's not null -- not technically "nothing" but
   // may prevent some memory leakage in corner cases.
   if (skb) {
@@ -287,12 +287,12 @@ ClickSMACPHY_glue::cu_softmac_sendpacket_keepskbonfail(CU_SOFTMAC_PHY_HANDLE nfh
 }
 
 u_int32_t
-ClickSMACPHY_glue::cu_softmac_get_duration(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
+ClickSMACPHYglue::cu_softmac_get_duration(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
   return 0;
 }
 
 u_int32_t
-ClickSMACPHY_glue::cu_softmac_get_txlatency(CU_SOFTMAC_PHY_HANDLE nfh) {
+ClickSMACPHYglue::cu_softmac_get_txlatency(CU_SOFTMAC_PHY_HANDLE nfh) {
   return 0;
 }
 
@@ -300,7 +300,7 @@ ClickSMACPHY_glue::cu_softmac_get_txlatency(CU_SOFTMAC_PHY_HANDLE nfh) {
 // Set the phylayer info struct to contain our "null" functions
 //
 void
-ClickSMACPHY_glue::init_softmac_phyinfo(CU_SOFTMAC_PHYLAYER_INFO* pinfo) {
+ClickSMACPHYglue::init_softmac_phyinfo(CU_SOFTMAC_PHYLAYER_INFO* pinfo) {
   memset(pinfo,0,sizeof(pinfo));
   pinfo->cu_softmac_attach_mac = cu_softmac_attach_mac;
   pinfo->cu_softmac_detach_mac = cu_softmac_detach_mac;

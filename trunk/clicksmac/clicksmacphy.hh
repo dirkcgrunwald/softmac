@@ -36,7 +36,7 @@ A second handler
 
 See also... */
 
-class ClickSMACPHY_glue;
+class ClickSMACPHYglue;
 
 class ClickSMACPHY {
 
@@ -74,7 +74,7 @@ protected:
   // If you're trying to really shave microseconds then it might be worth
   // your while to do some profiling and see if this abstraction is costing
   // more than you'd care to pay.
-  ClickSMACPHY_glue* _softmac_glue;
+  ClickSMACPHYglue* _softmac_glue;
 };
 
 
