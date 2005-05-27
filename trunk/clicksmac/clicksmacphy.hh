@@ -1,7 +1,6 @@
 #ifndef CLICK_CLICKSMACPHY_HH
 #define CLICK_CLICKSMACPHY_HH
 #include <click/element.hh>
-#include "cu_softmac_api.h"
 CLICK_DECLS
 
 /*
@@ -39,18 +38,11 @@ See also... */
 
 class ClickSMACPHY_glue;
 
-class ClickSMACPHY : public Element {
+class ClickSMACPHY {
 
 public:
   ClickSMACPHY();
   ~ClickSMACPHY();
-
-  const char *class_name() const	{ return "ClickSMACPHY"; }
-  const char *processing() const	{ return AGNOSTIC; }
-  
-  int configure(Vector<String> &, ErrorHandler *);
-  bool can_live_reconfigure() const	{ return true; }
-  void add_handlers();
 
   /*
    * Base SoftMAC PHY layer functions.
@@ -76,8 +68,14 @@ protected:
   String _phytype;
   String _phyid;
 
-  // This is an attempt to limit dependencies on OS and SoftMAC
-  // header files to clicksmacphy.cc.
+  // This opaque pointer is an attempt to limit dependencies on OS and SoftMAC
+  // header files to clicksmacphy.cc and specific PHY layer classes.
+  // Using this pointer does result in an
+  // additional pointer indirection that could cause a slight performance
+  // drop, though I haven't done any measurements to confirm or deny this.
+  // If you're trying to really shave microseconds then it might be worth
+  // your while to do some profiling and see if this abstraction is costing
+  // more than you'd care to pay.
   ClickSMACPHY_glue* _softmac_glue;
 };
 

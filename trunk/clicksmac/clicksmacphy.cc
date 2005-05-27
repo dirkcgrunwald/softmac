@@ -25,93 +25,21 @@
 
 #include <click/config.h>
 #include "clicksmacphy.hh"
-#include <click/confparse.hh>
+#include "clicksmacphy_glue.hh"
 #include <click/error.hh>
 #include <click/glue.hh>
 CLICK_DECLS
-
-class ClickSMACPHY_glue {
-
-  friend class ClickSMACPHY;
-
-protected:
-  CU_SOFTMAC_PHYLAYER_INFO _phyinfo;
-  CU_SOFTMAC_MACLAYER_INFO _macinfo;
-  PacketEventSink* _packetrxsink;
-  PacketEventSink* _packettxdonesink;
-
-  // We implement static callbacks that act collectively as a shim SoftMAC MAC
-  // that translates between Click and the SoftMAC PHY.
-protected:
-  static int cu_softmac_mac_packet_tx_done(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop);
-  static int cu_softmac_mac_packet_rx(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop);
-  static int cu_softmac_mac_work(CU_SOFTMAC_PHY_HANDLE,void*,int intop);
-  static int cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE,void*,int intop);
-  static int cu_softmac_mac_attach_to_phy(void*,CU_SOFTMAC_PHYLAYER_INFO*);
-  static int cu_softmac_mac_detach_from_phy(void*);
-  static int cu_softmac_mac_set_rx_func(void*,CU_SOFTMAC_MAC_RX_FUNC,void*);
-  static int cu_softmac_mac_set_unload_notify_func(void*,CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC,void*);
-
-  // We keep a bank of "do nothing" functions around and
-  // load them up into the appropriate _phyinfo elements instead
-  // of null values on intialization.
-  // This lets us avoid doing an "if null" check every time
-  // we want to call one of the provided functions.
-protected:
-  static void cu_softmac_attach_mac(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
-  static void cu_softmac_detach_mac(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv);
-  static u_int64_t cu_softmac_get_time(CU_SOFTMAC_PHY_HANDLE nfh);
-  static void cu_softmac_set_time(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t time);
-  static void cu_softmac_schedule_work_asap(CU_SOFTMAC_PHY_HANDLE nfh);
-  static struct sk_buff* cu_softmac_alloc_skb(CU_SOFTMAC_PHY_HANDLE nfh,int datalen);
-  static void cu_softmac_free_skb(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff*);
-  static int cu_softmac_sendpacket(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb);
-  static int cu_softmac_sendpacket_keepskbonfail(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb);
-  static u_int32_t cu_softmac_get_duration(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb);
-  static u_int32_t cu_softmac_get_txlatency(CU_SOFTMAC_PHY_HANDLE nfh);
-
-  static void init_softmac_phyinfo(CU_SOFTMAC_PHYLAYER_INFO* pinfo);
-
-};
 
 ////
 //// ClickSMACPHY implementation
 ////
 
-ClickSMACPHY::ClickSMACPHY()
-  : Element(0, 0)
-{
+ClickSMACPHY::ClickSMACPHY() {
   _softmac_glue = new ClickSMACPHY_glue();
 }
 
-ClickSMACPHY::~ClickSMACPHY()
-{
-  // XXX build this
-  // XXX also check on methods called at instance destruction...
-}
-
-int
-ClickSMACPHY::configure(Vector<String> &conf, ErrorHandler *errh)
-{
-  if (cp_va_parse(conf, this, errh,
-		  cpString, "SoftMAC PHY Type", &_phytype,
-		  cpString, "SoftMAC PHY ID", &_phyid,
-		  cpEnd) < 0)
-    return -1;
-  return 0;
-}
-
-String
-ClickSMACPHY::read_handler(Element *e, void *thunk)
-{
-  // XXX build this
-  return "TODO";
-}
-
-void
-ClickSMACPHY::add_handlers()
-{
-  // XXX build this
+ClickSMACPHY::~ClickSMACPHY() {
+  delete _softmac_glue;
 }
 
 int
@@ -175,10 +103,12 @@ ClickSMACPHY::SetPacketTxDoneSink(PacketEventSink* psink) {
 
 ClickSMACPHY_glue::ClickSMACPHY_glue() {
   init_softmac_phyinfo(&_phyinfo);
-  // XXX init the _macinfo stuct as well...
+  init_softmac_macinfo(&_macinfo);
 }
 
 ClickSMACPHY_glue::~ClickSMACPHY_glue() {
+  // Make sure we're detached from any phy layer we're on...
+  cu_softmac_mac_detach_from_phy(this);
 }
 
 int
@@ -206,7 +136,7 @@ ClickSMACPHY_glue::cu_softmac_mac_work(CU_SOFTMAC_PHY_HANDLE ph,void* me,int int
 int
 ClickSMACPHY_glue::cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop) {
   ClickSMACPHY_glue* obj = me;
-  // The phy layer is going away -- reset _phyinfo to "null"
+  // The phy layer is going away -- reset _phyinfo to "null" state
   init_softmac_phyinfo(&obj->_phyinfo);
 }
 
@@ -216,6 +146,16 @@ ClickSMACPHY_glue::cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE ph,void* me,int i
 int
 ClickSMACPHY_glue::cu_softmac_mac_attach_to_phy(void* me,CU_SOFTMAC_PHYLAYER_INFO* phy) {
   ClickSMACPHY_glue* obj = me;
+  // XXX check to see if we're already attached to something?
+  // XXX spinlock or something?
+  memcpy(&obj->_phyinfo,phy,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
+  click_chatter("ClickSMACPHY_glue: attaching to PHY...\n");
+  if (!(obj->_phyinfo.cu_softmac_attach_mac)(obj->_phyinfo.phyhandle,obj)) {
+    click_chatter("ClickSMACPHY_glue: attached to PHY\n");
+  }
+  else {
+    click_chatter("ClickSMACPHY_glue: attach to PHY failed!\n");
+  }
 }
 
 //
@@ -224,6 +164,12 @@ ClickSMACPHY_glue::cu_softmac_mac_attach_to_phy(void* me,CU_SOFTMAC_PHYLAYER_INF
 int
 ClickSMACPHY_glue::cu_softmac_mac_detach_from_phy(void* me) {
   ClickSMACPHY_glue* obj = me;
+  result = 0;
+
+  click_chatter("ClickSMACPHY_glue: detaching from PHY\n");
+  (obj->_phyinfo.cu_softmac_detach_mac)(obj->_phyinfo.phyhandle,obj);
+
+  return result;
 }
 
 //
@@ -246,14 +192,34 @@ ClickSMACPHY_glue::cu_softmac_mac_set_unload_notify_func(void* me,CU_SOFTMAC_MAC
   ClickSMACPHY_glue* obj = me;
 }
 
+//
+// Set the maclayer info struct to contain our shim functions
+//
+void
+ClickSMACPHY_glue::init_softmac_macinfo(CU_SOFTMAC_MACLAYER_INFO* macinfo) {
+  memset(macinfo,0,sizeof(macinfo));
+  //macinfo->cu_softmac_mac_packet_tx = cu_softmac_mac_packet_tx_cheesymac;
+  macinfo->cu_softmac_mac_packet_tx_done = cu_softmac_mac_packet_tx_done;
+  macinfo->cu_softmac_mac_packet_rx = cu_softmac_mac_packet_rx;
+  macinfo->cu_softmac_mac_work = cu_softmac_mac_work;
+  macinfo->cu_softmac_mac_detach = cu_softmac_mac_detach;
+  macinfo->cu_softmac_mac_attach_to_phy = cu_softmac_mac_attach_to_phy;
+  macinfo->cu_softmac_mac_detach_from_phy = cu_softmac_mac_detach_from_phy;
+  macinfo->cu_softmac_mac_set_rx_func = cu_softmac_mac_set_rx_func;
+  macinfo->cu_softmac_mac_set_unload_notify_func = cu_softmac_mac_set_unload_notify_func;
+  macinfo->mac_private = this;
+}
+
+
 ////
 //// ClickSMACPHY_glue implementation
 //// Bank of "do nothing" PHY functions
 ////
 
-void
+int
 ClickSMACPHY_glue::cu_softmac_attach_mac(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo) {
   // Do nothing...
+  return -1;
 }
 
 void
