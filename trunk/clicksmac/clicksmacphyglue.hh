@@ -7,12 +7,17 @@ CLICK_DECLS
 class ClickSMACPHYglue {
 
   friend class ClickSMACPHY;
+public:
+  ClickSMACPHYglue();
+  ~ClickSMACPHYglue();
+  // XXX maybe make this protected and require access to it through
+  // a spinlock? Should think about this...
+  CU_SOFTMAC_MACLAYER_INFO _macinfo;
 
 protected:
   CU_SOFTMAC_PHYLAYER_INFO _phyinfo;
-  CU_SOFTMAC_MACLAYER_INFO _macinfo;
-  PacketEventSink* _packetrxsink;
-  PacketEventSink* _packettxdonesink;
+  ClickSMACPHY::PacketEventSink* _packetrxsink;
+  ClickSMACPHY::PacketEventSink* _packettxdonesink;
 
   // We implement static callbacks that act collectively as a shim SoftMAC MAC
   // that translates between Click and the SoftMAC PHY.
@@ -25,7 +30,7 @@ public:
   static int cu_softmac_mac_detach_from_phy(void*);
   static int cu_softmac_mac_set_rx_func(void*,CU_SOFTMAC_MAC_RX_FUNC,void*);
   static int cu_softmac_mac_set_unload_notify_func(void*,CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC,void*);
-  static void init_softmac_macinfo(CU_SOFTMAC_MACLAYER_INFO* macinfo);
+  static void init_softmac_macinfo(CU_SOFTMAC_MACLAYER_INFO* macinfo,ClickSMACPHYglue* macpriv);
 
   // We keep a bank of "do nothing" functions around and
   // load them up into the appropriate _phyinfo elements instead
@@ -33,7 +38,7 @@ public:
   // This lets us avoid doing an "if null" check every time
   // we want to call one of the provided functions.
 protected:
-  static void cu_softmac_attach_mac(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
+  static int cu_softmac_attach_mac(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
   static void cu_softmac_detach_mac(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv);
   static u_int64_t cu_softmac_get_time(CU_SOFTMAC_PHY_HANDLE nfh);
   static void cu_softmac_set_time(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t time);

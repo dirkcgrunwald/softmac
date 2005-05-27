@@ -1,6 +1,19 @@
 #ifndef CLICK_CLICKSMACPHY_HH
 #define CLICK_CLICKSMACPHY_HH
 #include <click/element.hh>
+
+#include <click/cxxprotect.h>
+CLICK_CXX_PROTECT
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/stat.h>
+#include <linux/skbuff.h>
+#include <linux/netdevice.h>
+
+#include "cu_softmac_api.h"
+CLICK_CXX_UNPROTECT
+#include <click/cxxunprotect.h>
+
 CLICK_DECLS
 
 /*
@@ -49,20 +62,22 @@ public:
    */
 public:
   inline int TransmitPacket(Packet* p, int maxinflight);
-  inline int TransmitPacketKeepOnFail(Packet* p, maxinflight);
+  inline int TransmitPacketKeepOnFail(Packet* p, int maxinflight);
   inline WritablePacket* CreatePacket(int size);
   inline void DestroyPacket(Packet* p);
   inline u_int32_t GetPacketTransmitDuration(Packet* p);
   inline u_int32_t GetTransmitLatency();
-  inline void SetPacketRxSink(PacketEventSink* psink);
-  inline void SetPacketTxDoneSink(PacketEventSink* psink);
-  inline u_int64_t GetTime();
-  inline void SetTime(u_int64_t);
 
   class PacketEventSink {
   public:
     virtual void PacketEvent(Packet* p) = 0;
   };
+
+  inline void SetPacketRxSink(PacketEventSink* psink);
+  inline void SetPacketTxDoneSink(PacketEventSink* psink);
+  inline u_int64_t GetTime();
+  inline void SetTime(u_int64_t);
+
   
 protected:
 
