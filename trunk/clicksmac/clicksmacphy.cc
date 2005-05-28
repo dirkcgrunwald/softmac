@@ -114,9 +114,15 @@ ClickSMACPHY::SetPacketTxDoneSink(PacketEventSink* psink) {
 //// SoftMAC MAC shim functions
 ////
 
+// XXX this should be static -- see if compiler change fixes problem
+// with common vars
+//static ClickSMACPHYglue::PacketEventBlackHole ClickSMACPHYglue::_defaultsink;
+
 ClickSMACPHYglue::ClickSMACPHYglue() {
   init_softmac_phyinfo(&_phyinfo);
   init_softmac_macinfo(&_macinfo,this);
+  _packetrxsink = &_defaultsink;
+  _packettxdonesink = &_defaultsink;
 }
 
 ClickSMACPHYglue::~ClickSMACPHYglue() {

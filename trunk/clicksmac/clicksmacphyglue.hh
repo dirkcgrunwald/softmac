@@ -18,6 +18,13 @@ protected:
   CU_SOFTMAC_PHYLAYER_INFO _phyinfo;
   ClickSMACPHY::PacketEventSink* _packetrxsink;
   ClickSMACPHY::PacketEventSink* _packettxdonesink;
+  
+  class PacketEventBlackHole : public ClickSMACPHY::PacketEventSink {
+    virtual void PacketEvent(Packet* p) { p->kill(); };
+  };
+  // XXX this should be static -- see if compiler change fixes problem
+  // with common vars
+  PacketEventBlackHole _defaultsink;
 
   // We implement static callbacks that act collectively as a shim SoftMAC MAC
   // that translates between Click and the SoftMAC PHY.
