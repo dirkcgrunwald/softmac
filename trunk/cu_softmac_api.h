@@ -37,31 +37,87 @@
  * 
  * \section intro_sec What is SoftMAC?
  *
- * A fine introduction. 
+ * SoftMAC is an abstraction designed to facilitate the creation
+ * of custom and experimental MAC layers when used with Software
+ * Defined Radio hardware. A traditional network interface system
+ * is structured with a tightly coupled MAC and PHY layer exporting
+ * a standard API to the operating system.
  *
- * \subsection netstack_sec The Network Stack
+
+  Network interface,
+     e.g. eth0
+       |
+       |
+ ++++++++++++++
++              +
++  OS Network  + 
++  Interface   +
++    Layer     +
++              +
+ ++++++++++++++
+       | 
+ ++++++++++++++
++              +
++   MAC/PHY    +
++   software   +
++  driver and  +
++ network card + 
++  hardware    +
++              +    
+ ++++++++++++++
+       |
+       |
+ Network Medium
+
  *
- * \subsection softmac_component_sec SoftMAC Components
+ * This structure permits the easy swapping of underlying network
+ * hardware. Two different brands of ethernet card will both show up
+ * as eth0 on a system, and as long as the drivers and hardware
+ * both function properly an application doesn't have to concern
+ * itself with which network card is being used.
  *
- * \section your_own_mac_sec Creating Your Own MAC Layer
+
+
+ *
+ * The SoftMAC breaks out the integrated MAC and PHY layer
+ * into separate (but still coupled) components.
+ *
+
+  Network interface,
+     e.g. eth0
+       |
+       |
+ ++++++++++++++
++              +
++  OS Network  + 
++  Interface   +
++    Layer     +
++              +
+ ++++++++++++++
+       |
+ ++++++++++++++
++              +
++ SoftMAC MAC  + 
++    Layer     +
++              +
+ ++++++++++++++
+       |
+ ++++++++++++++
++              +
++ SoftMAC PHY  + 
++    Layer     +
++              +
+ ++++++++++++++
+       |
+       |
+ Network Medium
+
  * 
- * This should maybe reference the cheesymac?
- *
- * \section your_own_phy_sec Creating Your Own PHY Layer
- *
- * This should maybe reference the madwifi phy?
- *
- * \section your_own_netif_sec Interfacing With the OS
- *
- * This should reference the netif module
- *
- * \section existing_components_sec Existing Modules
- *
- * \subsection clickmac_sec Using ClickMAC
- *
- * \subsection remotemac_sec Using RemoteMAC
+ * This structure affords even greater flexibility than the traditional
+ * network stack.
  *
  */
+
 
 /*
 **
@@ -89,7 +145,7 @@ typedef struct {
   /**
    * @brief Attach a MAC layer to the PHY layer
    */
-  void (*cu_softmac_attach_mac)(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
+  int (*cu_softmac_attach_mac)(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
 
   /**
    * @brief Detach a MAC layer from the PHY layer
