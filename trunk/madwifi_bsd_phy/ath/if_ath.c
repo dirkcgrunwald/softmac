@@ -371,7 +371,7 @@ static struct sk_buff * ath_alloc_skb(u_int size, u_int align);
 ** PHY layer device table.
 **
 */
-static void
+static int
 cu_softmac_attach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* macinfo);
 /*
  * Tell the softmac PHY that we are leaving the building
@@ -408,8 +408,6 @@ cu_softmac_get_txlatency_ath(CU_SOFTMAC_PHY_HANDLE nfh);
 **
 */
 #endif
-
-
 
 int
 ath_attach(u_int16_t devid, struct net_device *dev)
@@ -6931,9 +6929,10 @@ void cu_softmac_ath_set_phocus_state(u_int16_t state,int16_t settle)
 #undef BOTH_EMPTY
 }
 
-void
+int
 cu_softmac_attach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* macinfo) {
   struct ath_softc* sc = (struct ath_softc*)nfh;
+  int result = 0;
   // Lock the MAC
   printk(KERN_DEBUG "SoftMAC MADWIFI: About to attach MAC -- getting lock\n");
   spin_lock(&(sc->sc_cu_softmac_mac_lock));
@@ -6948,6 +6947,7 @@ cu_softmac_attach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* ma
   memcpy(&(sc->sc_cu_softmac_mac),macinfo,sizeof(CU_SOFTMAC_MACLAYER_INFO));
   // Unlock the MAC
   spin_unlock(&(sc->sc_cu_softmac_mac_lock));
+  return result;
 }
 
 /*
