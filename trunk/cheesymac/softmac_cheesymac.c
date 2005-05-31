@@ -309,7 +309,30 @@ cu_softmac_mac_set_rx_func_cheesymac(void* handle,
 static int
 cu_softmac_mac_set_unload_notify_func_cheesymac(void* handle,
 						CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC unloadfunc,
+
 						void* unloadpriv);
+
+/*
+**
+** We keep around a bank of "do nothing" PHY layer functions
+** to load up our "vtable" in order to avoid doing an "if null"
+** check every single time we want to invoke a method.
+**
+*/
+static int cu_softmac_attach_mac_dummy(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
+static void cu_softmac_detach_mac_dummy(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv);
+static u_int64_t cu_softmac_get_time_dummy(CU_SOFTMAC_PHY_HANDLE nfh);
+static void cu_softmac_set_time_dummy(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t time);
+static void cu_softmac_schedule_work_asap_dummy(CU_SOFTMAC_PHY_HANDLE nfh);
+static struct sk_buff* cu_softmac_alloc_skb_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int datalen);
+static void cu_softmac_free_skb_dummy(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff*);
+static int cu_softmac_sendpacket_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb);
+static int cu_softmac_sendpacket_keepskbonfail_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb);
+static u_int32_t cu_softmac_get_duration_dummy(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb);
+static u_int32_t cu_softmac_get_txlatency_dummy(CU_SOFTMAC_PHY_HANDLE nfh);
+
+static void init_softmac_phyinfo_dummy(CU_SOFTMAC_PHYLAYER_INFO* pinfo);
+
 
 /*
 **
@@ -1251,6 +1274,9 @@ cu_softmac_mac_attach_to_phy_cheesymac(void* handle,
       memcpy(&(inst->myphy),phyinfo,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
       cu_softmac_cheesymac_get_macinfo(handle,&cheesymacinfo);
       printk(KERN_DEBUG "SoftMAC CheesyMAC: About to call PHY attach\n");
+      /*
+       * XXX check return result from attach
+       */
       (phyinfo->cu_softmac_attach_mac)(phyinfo->phyhandle,&cheesymacinfo);
       printk(KERN_DEBUG "SoftMAC CheesyMAC: Return from PHY attach\n");
     }
@@ -1454,6 +1480,124 @@ cu_softmac_cheesymac_set_instance_params(void* macpriv,
   }
 }
 
+/*
+** 
+** Implementations of our "do nothing" functions to avoid null checks
+**
+*/
+int
+cu_softmac_attach_mac_dummy(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo) {
+  /*
+   * Do nothing...
+   */
+  return -1;
+}
+
+void
+cu_softmac_detach_mac_dummy(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv) {
+  /*
+   * Do nothing...
+   */
+}
+
+u_int64_t
+cu_softmac_get_time_dummy(CU_SOFTMAC_PHY_HANDLE nfh) {
+  /*
+   * Do nothing...
+   */
+  return 0;
+}
+
+void
+cu_softmac_set_time_dummy(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t time) {
+  /*
+   * Do nothing...
+   */
+}
+
+void
+cu_softmac_schedule_work_asap_dummy(CU_SOFTMAC_PHY_HANDLE nfh) {
+  /*
+   * Do nothing...
+   */
+}
+
+struct sk_buff*
+cu_softmac_alloc_skb_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int datalen) {
+  /*
+   * Do nothing...
+   */
+  return 0;
+}
+
+void
+cu_softmac_free_skb_dummy(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
+  /*
+   * Free the packet if it's not null -- not technically "nothing" but
+   * may prevent some memory leakage in corner cases.
+   */
+  if (skb) {
+    dev_kfree_skb_any(skb);
+  }
+  
+}
+
+int
+cu_softmac_sendpacket_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb) {
+  /*
+   * Free the packet if it's not null -- not technically "nothing" but
+   * may prevent some memory leakage in corner cases.
+   */
+  if (skb) {
+    dev_kfree_skb_any(skb);
+  }
+  return CU_SOFTMAC_PHY_SENDPACKET_OK;
+}
+
+int
+cu_softmac_sendpacket_keepskbonfail_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb) {
+  /*
+   * Free the packet if it's not null -- not technically "nothing" but
+   * may prevent some memory leakage in corner cases.
+   */
+  if (skb) {
+    dev_kfree_skb_any(skb);
+  }
+  return CU_SOFTMAC_PHY_SENDPACKET_OK;
+}
+
+u_int32_t
+cu_softmac_get_duration_dummy(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
+  /*
+   * Do nothing...
+   */
+  return 0;
+}
+
+u_int32_t
+cu_softmac_get_txlatency_dummy(CU_SOFTMAC_PHY_HANDLE nfh) {
+  /*
+   * Do nothing...
+   */
+  return 0;
+}
+
+void
+init_softmac_phyinfo_dummy(CU_SOFTMAC_PHYLAYER_INFO* pinfo) {
+  memset(pinfo,0,sizeof(pinfo));
+  pinfo->cu_softmac_attach_mac = cu_softmac_attach_mac_dummy;
+  pinfo->cu_softmac_detach_mac = cu_softmac_detach_mac_dummy;
+  pinfo->cu_softmac_get_time = cu_softmac_get_time_dummy;
+  pinfo->cu_softmac_set_time = cu_softmac_set_time_dummy;
+  pinfo->cu_softmac_schedule_work_asap = cu_softmac_schedule_work_asap_dummy;
+  pinfo->cu_softmac_alloc_skb = cu_softmac_alloc_skb_dummy;
+  pinfo->cu_softmac_free_skb = cu_softmac_free_skb_dummy;
+  pinfo->cu_softmac_sendpacket = cu_softmac_sendpacket_dummy;
+  pinfo->cu_softmac_sendpacket_keepskbonfail = cu_softmac_sendpacket_keepskbonfail_dummy;
+  pinfo->cu_softmac_get_duration = cu_softmac_get_duration_dummy;
+  pinfo->cu_softmac_get_txlatency = cu_softmac_get_txlatency_dummy;
+  pinfo->phyhandle = 0;
+}
 
 module_init(softmac_cheesymac_init);
 module_exit(softmac_cheesymac_exit);
