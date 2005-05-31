@@ -114,8 +114,19 @@
 
  * 
  * This structure affords even greater flexibility than the traditional
- * network stack.
+ * network stack when used with appropriately capable hardware. Most MAC
+ * layers are still implemented either wholly or partially by the underlying
+ * hardware and are immutable. With such hardware the SoftMAC abstraction
+ * makes no sense, and serves only as an extra layer of inefficiency.
+ * However, recent advances in <i>Software Defined Radio</i> technology
+ * have resulted in much more flexible network hardware. Fully exploiting
+ * the capabilities of this hardware requires a more flexible network
+ * stack. SoftMAC is designed to strike a balance between flexibility
+ * and efficiency that will permit experimentation with this hardware.
  *
+ * \section sdr_sec Software Defined Radio
+ *
+ * A Software Defined Radio, or <i>SDR</i>, ...
  */
 
 
