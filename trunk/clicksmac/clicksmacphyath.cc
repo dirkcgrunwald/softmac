@@ -55,9 +55,17 @@ ClickSMACPHYath::initialize(ErrorHandler *errh)
 
   //_dev = dev_get_by_name(_devname.cc());
   if (_dev) {
+    int attachres = 0;
     // Grab atheros phy info and attach it to our mac layer
     cu_softmac_ath_get_phyinfo(_dev,&athphyinfo);
-    (_macinfo.cu_softmac_mac_attach_to_phy)(this,&athphyinfo);
+    click_chatter("ClickSMACPHYath: About to attach to phy...\n");
+    attachres = (_macinfo.cu_softmac_mac_attach_to_phy)((ClickSMACPHY*)this,&athphyinfo);
+    if (attachres) {
+      click_chatter("ClickSMACPHYath: got %d from attach\n",attachres);
+    }
+    else {
+      click_chatter("ClickSMACPHYath: got %d from attach\n",attachres);
+    }
   }
   else {
     error = errh->error("unable to find device %s", _devname.cc());
@@ -68,6 +76,7 @@ ClickSMACPHYath::initialize(ErrorHandler *errh)
 void
 ClickSMACPHYath::cleanup(CleanupStage stage)
 {
+  click_chatter("ClickSMACPHYath: cleanup -- detach from phy\n");
   (_macinfo.cu_softmac_mac_detach_from_phy)(_macinfo.mac_private);
   if (_dev) {
     dev_put(_dev);

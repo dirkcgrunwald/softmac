@@ -52,6 +52,7 @@ CLICK_DECLS
 //static ClickSMACPHY::PacketEventBlackHole ClickSMACPHY::_defaultsink;
 
 ClickSMACPHY::ClickSMACPHY() {
+  click_chatter("ClickSMACPHY: constructor\n");
   init_softmac_phyinfo(&_phyinfo);
   init_softmac_macinfo(&_macinfo,this);
   _packetrxsink = &_defaultsink;
@@ -59,6 +60,7 @@ ClickSMACPHY::ClickSMACPHY() {
 }
 
 ClickSMACPHY::~ClickSMACPHY() {
+  click_chatter("ClickSMACPHY: destructor\n");
   cu_softmac_mac_detach_from_phy(this);
 }
 
@@ -79,7 +81,7 @@ ClickSMACPHY::CreatePacket(int size) {
   struct sk_buff* newskb = 0;
   Packet* newpacketro = 0;
   WritablePacket* newpacketrw = 0;
-
+  click_chatter("ClickSMACPHY: CreatePacket\n");
   // Use the phy layer packet create routine to make an skbuff
   // that will then get wrapped by a Click Packet object
   newskb = (_phyinfo.cu_softmac_alloc_skb)(_phyinfo.phyhandle,size);
@@ -95,11 +97,13 @@ ClickSMACPHY::CreatePacket(int size) {
 
 void
 ClickSMACPHY::DestroyPacket(Packet* p) {
+  click_chatter("ClickSMACPHY: DestroyPacket\n");
   (_phyinfo.cu_softmac_free_skb)(_phyinfo.phyhandle,p->skb());
 }
 
 u_int32_t
 ClickSMACPHY::GetPacketTransmitDuration(Packet* p) {
+  click_chatter("ClickSMACPHY: GetTxDuration\n");
   return (_phyinfo.cu_softmac_get_duration)(_phyinfo.phyhandle,p->skb());
 }
 
@@ -110,11 +114,13 @@ ClickSMACPHY::GetTransmitLatency() {
 
 void
 ClickSMACPHY::SetPacketRxSink(PacketEventSink* psink) {
+  click_chatter("ClickSMACPHY: setting packetrx sink\n");
   _packetrxsink = psink;
 }
 
 void
 ClickSMACPHY::SetPacketTxDoneSink(PacketEventSink* psink) {
+  click_chatter("ClickSMACPHY: setting packet txdone sink\n");
   _packettxdonesink = psink;
 }
 
@@ -145,8 +151,10 @@ ClickSMACPHY::cu_softmac_mac_work(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop) {
 //
 int
 ClickSMACPHY::cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop) {
+  click_chatter("ClickSMACPHY: cu_softmac_mac_detach\n");
   ClickSMACPHY* obj = me;
   // The phy layer is going away -- reset _phyinfo to "null" state
+  click_chatter("ClickSMACPHY: cu_softmac_mac_detach -- restting phyinfo\n");
   init_softmac_phyinfo(&obj->_phyinfo);
 }
 
@@ -156,16 +164,20 @@ ClickSMACPHY::cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop)
 int
 ClickSMACPHY::cu_softmac_mac_attach_to_phy(void* me,CU_SOFTMAC_PHYLAYER_INFO* phy) {
   ClickSMACPHY* obj = me;
+  int result = 0;
   // XXX check to see if we're already attached to something?
   // XXX spinlock or something?
   memcpy(&obj->_phyinfo,phy,sizeof(CU_SOFTMAC_PHYLAYER_INFO));
   click_chatter("ClickSMACPHY: attaching to PHY...\n");
-  if (!(obj->_phyinfo.cu_softmac_attach_mac)(obj->_phyinfo.phyhandle,&obj->_macinfo)) {
+  //init_softmac_macinfo(&obj->_macinfo,me);
+  result = (obj->_phyinfo.cu_softmac_attach_mac)(obj->_phyinfo.phyhandle,&(obj->_macinfo));
+  if (!result) {
     click_chatter("ClickSMACPHY: attached to PHY\n");
   }
   else {
-    click_chatter("ClickSMACPHY: attach to PHY failed!\n");
+    click_chatter("ClickSMACPHY: attach to PHY failed with %d!\n",result);
   }
+  return result;
 }
 
 //
@@ -178,6 +190,8 @@ ClickSMACPHY::cu_softmac_mac_detach_from_phy(void* me) {
 
   click_chatter("ClickSMACPHY: detaching from PHY\n");
   (obj->_phyinfo.cu_softmac_detach_mac)(obj->_phyinfo.phyhandle,obj);
+  click_chatter("ClickSMACPHY: returned from detach -- init phyinfo\n");
+  init_softmac_phyinfo(&obj->_phyinfo);
 
   return result;
 }
@@ -229,11 +243,13 @@ ClickSMACPHY::init_softmac_macinfo(CU_SOFTMAC_MACLAYER_INFO* macinfo,ClickSMACPH
 int
 ClickSMACPHY::cu_softmac_attach_mac(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo) {
   // Do nothing...
+  click_chatter("ClickSMACPHY: dummy attach_mac!\n");
   return -1;
 }
 
 void
 ClickSMACPHY::cu_softmac_detach_mac(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv) {
+  click_chatter("ClickSMACPHY: dummy detach_mac!\n");
   // Do nothing...
 }
 
