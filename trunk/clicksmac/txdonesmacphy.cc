@@ -32,7 +32,7 @@ TxDoneSMACPHY::configure(Vector<String> &conf, ErrorHandler *errh)
 {
   Element* smacel;
   if (cp_va_parse(conf, this, errh,
-		  cpElement, "SoftMAC PHY element", smacel,
+		  cpElement, "SoftMAC PHY element", &smacel,
 		  cpEnd) < 0)
     return -1;
   

@@ -30,9 +30,9 @@ FromSMACPHY::~FromSMACPHY()
 int
 FromSMACPHY::configure(Vector<String> &conf, ErrorHandler *errh)
 {
-  Element* smacel;
+  Element* smacel = 0;
   if (cp_va_parse(conf, this, errh,
-		  cpElement, "SoftMAC PHY element", smacel,
+		  cpElement, "SoftMAC PHY element", &smacel,
 		  cpEnd) < 0)
     return -1;
   
