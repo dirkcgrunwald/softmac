@@ -1,5 +1,6 @@
 /*
  * clicksmacphy.{cc,hh} -- interface between CU SoftMAC API and Click
+ * Michael Neufeld
  *
  * Copyright (c) 2005 University of Colorado at Boulder
  *

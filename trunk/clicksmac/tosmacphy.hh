@@ -28,6 +28,8 @@ public:
     
   int configure(Vector<String> &, ErrorHandler *);
   int initialize(ErrorHandler *);
+  void cleanup(CleanupStage);
+
   void push(int port, Packet *);
 
 private:

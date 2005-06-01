@@ -32,7 +32,9 @@ ToSMACPHY::configure(Vector<String> &conf, ErrorHandler *errh)
 {
   Element* smacel;
   if (cp_va_parse(conf, this, errh,
-		  cpElement, "SoftMAC PHY element", smacel,
+		  cpElement, "SoftMAC PHY element", &smacel,
+		  cpOptional,
+		  cpUnsigned, "maximum packets in flight", &_maxinflight,
 		  cpEnd) < 0)
     return -1;
   
@@ -41,8 +43,7 @@ ToSMACPHY::configure(Vector<String> &conf, ErrorHandler *errh)
   }
 
   if (!_smacphy) {
-    // XXX make up an error code/string!
-    return -1;
+    return errh->error("unable to cast element to ClickSMACPHY");
   }
 
   return 0;
@@ -53,6 +54,12 @@ ToSMACPHY::initialize(ErrorHandler *errh)
 {
   // XXX finish this
   return 0;
+}
+
+void
+ToSMACPHY::cleanup(CleanupStage) {
+  // XXX finish this
+  
 }
 
 void

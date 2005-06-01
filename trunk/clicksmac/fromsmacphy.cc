@@ -41,8 +41,7 @@ FromSMACPHY::configure(Vector<String> &conf, ErrorHandler *errh)
   }
 
   if (!_smacphy) {
-    // XXX make up an error code/string!
-    return -1;
+    return errh->error("element not of type ClickSMACPHY");
   }
 
   return 0;
