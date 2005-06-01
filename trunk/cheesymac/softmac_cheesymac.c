@@ -130,15 +130,16 @@ typedef struct CHEESYMAC_INSTANCE_t {
    */
   struct list_head my_procfs_data;
 
-  /*
-   * Some parameters determining basic phy properties,
-   * behavior w.r.t. top half/bottom half processing
-   */
 
   /**
    * @brief Transmit bitrate encoding to use.
    */
   unsigned char txbitrate;
+
+  /*
+   * Some parameters determining basic phy properties,
+   * behavior w.r.t. top half/bottom half processing
+   */
   int defertx;
   int defertxdone;
   int deferrx;
@@ -427,6 +428,7 @@ static int cheesymac_ath_deferalltxdone = CHEESYMAC_DEFAULT_DEFERALLTXDONE;
  * Optionally attach the cheesymac to a softmac phy upon loading
  */
 static int cheesymac_attach_on_load = 0;
+static struct net_device* cheesymac_net_device = 0;
 
 /*
  * Default root directory for cheesymac procfs entries
@@ -504,15 +506,14 @@ static int __init softmac_cheesymac_init(void)
   if (cheesymac_attach_on_load) {
     CU_SOFTMAC_MACLAYER_INFO newmacinfo;
     CU_SOFTMAC_PHYLAYER_INFO athphyinfo;
-    struct net_device* mydev = 0;
     printk(KERN_DEBUG "Creating and attaching CheesyMAC to Atheros SoftMAC on %s\n",cheesymac_defaultphy);
-    mydev = dev_get_by_name(cheesymac_defaultphy);
+    cheesymac_net_device = dev_get_by_name(cheesymac_defaultphy);
 
     /*
      * Got the device handle, now attempt to get phy info off of it
      */
-    if (mydev) {
-      cu_softmac_ath_get_phyinfo(mydev,&athphyinfo);
+    if (cheesymac_net_device) {
+      cu_softmac_ath_get_phyinfo(cheesymac_net_device,&athphyinfo);
       memset(&newmacinfo,0,sizeof(CU_SOFTMAC_MACLAYER_INFO));
 
       /*
@@ -592,6 +593,15 @@ static void __exit softmac_cheesymac_exit(void)
   }
   else {
     printk(KERN_DEBUG "CheesyMAC: No instances found\n");
+  }
+
+  /*
+   * Did we grab a reference to a network device on load?
+   * Make sure we nuke it on unload.
+   */
+  if (cheesymac_net_device) {
+    dev_put(cheesymac_net_device);
+    cheesymac_net_device = 0;
   }
 
   /*
