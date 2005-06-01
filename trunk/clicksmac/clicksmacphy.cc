@@ -131,12 +131,14 @@ int
 ClickSMACPHY::cu_softmac_mac_packet_tx_done(CU_SOFTMAC_PHY_HANDLE ph,void* me,struct sk_buff* thepacket,int intop) {
   ClickSMACPHY* obj = me;
   obj->_packettxdonesink->PacketEvent(Packet::make(thepacket),PacketEventSink::TXDONE);
+  return CU_SOFTMAC_MAC_NOTIFY_OK;
 }
 
 int
 ClickSMACPHY::cu_softmac_mac_packet_rx(CU_SOFTMAC_PHY_HANDLE ph,void* me,struct sk_buff* thepacket,int intop) {
   ClickSMACPHY* obj = me;
   obj->_packetrxsink->PacketEvent(Packet::make(thepacket),PacketEventSink::RX);
+  return CU_SOFTMAC_MAC_NOTIFY_OK;
 }
 
 int
@@ -156,6 +158,7 @@ ClickSMACPHY::cu_softmac_mac_detach(CU_SOFTMAC_PHY_HANDLE ph,void* me,int intop)
   // The phy layer is going away -- reset _phyinfo to "null" state
   click_chatter("ClickSMACPHY: cu_softmac_mac_detach -- restting phyinfo\n");
   init_softmac_phyinfo(&obj->_phyinfo);
+  return 0;
 }
 
 //
@@ -204,6 +207,7 @@ ClickSMACPHY::cu_softmac_mac_detach_from_phy(void* me) {
 int
 ClickSMACPHY::cu_softmac_mac_set_rx_func(void* me,CU_SOFTMAC_MAC_RX_FUNC rxfunc,void* rxfuncpriv) {
   ClickSMACPHY* obj = me;
+  return 0;
 }
 
 //
@@ -214,6 +218,7 @@ ClickSMACPHY::cu_softmac_mac_set_rx_func(void* me,CU_SOFTMAC_MAC_RX_FUNC rxfunc,
 int
 ClickSMACPHY::cu_softmac_mac_set_unload_notify_func(void* me,CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC unloadfunc,void* unloadfuncpriv) {
   ClickSMACPHY* obj = me;
+  return 0;
 }
 
 //
