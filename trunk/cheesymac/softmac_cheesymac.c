@@ -39,6 +39,7 @@
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
+#include <linux/crypto.h>
 #include "cu_softmac_api.h"
 #include "cu_softmac_ath_api.h"
 #include "softmac_netif.h"
@@ -136,13 +137,30 @@ typedef struct CHEESYMAC_INSTANCE_t {
    */
   unsigned char txbitrate;
 
-  /*
-   * Some parameters determining basic phy properties,
-   * behavior w.r.t. top half/bottom half processing
+  /**
+   * @brief Setting the "defertx" flag results in transmission always
+   * being deferred to the "work" callback, even when the packet comes
+   * down while in the bottom half.
    */
   int defertx;
+
+  /**
+   * @brief Setting the "defertxdone" flag causes handling of the "txdone"
+   * to always be deferred to the "work" callback.
+   */
   int defertxdone;
+
+  /**
+   * @brief Setting the "deferrx" flag causes handling of the "txdone"
+   * to always be deferred to the "work" callback.
+   */
   int deferrx;
+
+  /**
+   * @brief The "maxinflight" variable determines the maximum number
+   * of packets that are allowed to be pending transmission at any
+   * given time.
+   */
   int maxinflight;
 
   /*
@@ -152,15 +170,47 @@ typedef struct CHEESYMAC_INSTANCE_t {
 
   /**
    * @brief A Linux kernel sk_buff packet queue containing packets
-   * whose transmission has been deferred.
+   * whose transmission has been deferred. Generally not an issue
+   * since packet transmission in Linux is handled in the bottom half
+   * inside of a softirq.
    */
   struct sk_buff_head tx_skbqueue;
+
+  /**
+   * @brief A Linux kernel sk_buff packet queue containing packets
+   * that have been transmitted but not yet handled. Because notification
+   * of "transmit complete" often occurs in the top half of an interrupt
+   * it may frequently make sense to use this queue in order to limit the
+   * amount of work performed with interrupts disabled.
+   */
   struct sk_buff_head txdone_skbqueue;
+
+  /**
+   * @brief A Linux kernel sk_buff packet queue containing packets
+   * that have been received but not yet handled. Because notification
+   * of packet reception generally occurs in the top half of an interrupt
+   * it may frequently make sense to use this queue in order to limit the
+   * amount of work performed with interrupts disabled. For example,
+   * the Linux cryptographic API functions must <b>not</b> be called from the
+   * top half. Decrypting received packets must therefore be deferred
+   * to handling in the bottom half, <i>i.e.</i> the "work" callback.
+   */
   struct sk_buff_head rx_skbqueue;
+
+  /**
+   * @brief A pointer to the current cryptographic transform used
+   * for encrypting/decrypting packets.
+   */
+  struct crypto_tfm* tfm;
+  
+  /**
+   * @brief Only use the cryptographic transform if this variable is true. 
+   */
+  int use_crypto;
 } CHEESYMAC_INSTANCE;
 
-/*
- * Information about each proc filesystem entry for instance
+/**
+ * @brief Information about each proc filesystem entry for instance
  * parameters. An array of these will be used to specify
  * the proc entries to create for each MAC instance.
  */
@@ -170,8 +220,8 @@ typedef struct {
   int entryid;
 } CHEESYMAC_INST_PROC_ENTRY;
 
-/*
- * Constants for proc entries for each CheesyMAC instance
+/**
+ * @brief Constants for proc entries for each CheesyMAC instance
  */
 enum {
   CHEESYMAC_INST_PROC_TXBITRATE,
@@ -182,8 +232,8 @@ enum {
   CHEESYMAC_INST_PROC_COUNT
 };
 
-/*
- * Proc filesystem entries for each cheesymac instance. The "data"
+/**
+ * @brief Proc filesystem entries for each cheesymac instance. The "data"
  * field will be passed in to a generic read/write routine that
  * will use it to determine how to handle the read/write.
  */
