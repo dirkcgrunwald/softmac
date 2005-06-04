@@ -39,7 +39,6 @@
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
-#include <linux/crypto.h>
 #include "cu_softmac_api.h"
 #include "cu_softmac_ath_api.h"
 #include "softmac_netif.h"
@@ -198,15 +197,10 @@ typedef struct CHEESYMAC_INSTANCE_t {
   struct sk_buff_head rx_skbqueue;
 
   /**
-   * @brief A pointer to the current cryptographic transform used
-   * for encrypting/decrypting packets.
-   */
-  struct crypto_tfm* tfm;
-  
-  /**
-   * @brief Only use the cryptographic transform if this variable is true. 
+   * @brief Do a cheesy rot 128 "encryption" on the data
    */
   int use_crypto;
+
 } CHEESYMAC_INSTANCE;
 
 /**
@@ -229,6 +223,11 @@ enum {
   CHEESYMAC_INST_PROC_DEFERTXDONE,
   CHEESYMAC_INST_PROC_DEFERRX,
   CHEESYMAC_INST_PROC_MAXINFLIGHT,
+  CHEESYMAC_INST_PROC_USECRYPTO,
+
+  /*
+   * CHEESYMAC_INST_PROC_COUNT must be left as the last entry
+   */
   CHEESYMAC_INST_PROC_COUNT
 };
 
@@ -262,6 +261,11 @@ static const CHEESYMAC_INST_PROC_ENTRY cheesymac_inst_proc_entries[] = {
     "maxinflight",
     0644,
     CHEESYMAC_INST_PROC_MAXINFLIGHT
+  },
+  {
+    "usecrypto",
+    0644,
+    CHEESYMAC_INST_PROC_USECRYPTO
   },
   /*
    * Using this as the "null terminator" for the item list
@@ -414,6 +418,7 @@ static int cheesymac_inst_read_proc(char *page, char **start, off_t off,
 static int cheesymac_inst_write_proc(struct file *file,
 				     const char __user *buffer,
 				     unsigned long count, void *data);
+static void cheesymac_rot128(struct sk_buff* skb);
 /*
 **
 ** Module parameters
@@ -426,7 +431,7 @@ static int cheesymac_inst_write_proc(struct file *file,
  */
 enum {
   CHEESYMAC_DEFAULT_DEFERTX = 0,
-  CHEESYMAC_DEFAULT_DEFERTXDONE = 0,
+  CHEESYMAC_DEFAULT_DEFERTXDONE = 1,
   CHEESYMAC_DEFAULT_DEFERRX = 1,
   CHEESYMAC_DEFAULT_MAXINFLIGHT = 256,
   CHEESYMAC_DEFAULT_DEFERALLRX = 0,
@@ -703,7 +708,7 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
        * of an interrupt and the place for time-critical tasks to
        * occur.
        */
-      if (inst->defertx && packet) {
+      if ((inst->defertx || inst->use_crypto) && packet) {
 	/*
 	 * Queue the packet in tx_skbqueue, schedule the "work" method
 	 * to run.
@@ -737,6 +742,12 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
        * Walk our transmit queue, shovelling out packets as we go...
        */
       while ((skb = skb_dequeue(&(inst->tx_skbqueue)))) {
+	/*
+	 * "Encrypt" packets on the way out if applicable.
+	 */
+	if (inst->use_crypto) {
+	  cheesymac_rot128(skb);
+	}
 	cu_softmac_cheesymac_prep_skb(inst,nfh,packet);
 	txresult = (inst->myphy.cu_softmac_sendpacket)(nfh,inst->maxinflight,packet);
 	if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
@@ -826,8 +837,11 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
     read_lock(&(inst->mac_busy));
     //printk(KERN_DEBUG "cheesymac: packet rx\n");
     if (intop) {
-      //printk(KERN_DEBUG "cheesymac: packet rx in top\n");
-      if (inst->deferrx && packet) {
+      /*
+       * We defer handling to the bottom half if we're either
+       * told to explicitly, or if we're using encryption.
+       */
+      if ((inst->deferrx || inst->use_crypto) && packet) {
 	/*
 	 * Queue packet for later processing
 	 */
@@ -862,16 +876,22 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
        */
       //printk(KERN_DEBUG "cheesymac: packet rx -- bottom half\n");
       if (packet) {
-	//printk(KERN_DEBUG "cheesymac: packet rx -- queueing\n");
 	skb_queue_tail(&(inst->rx_skbqueue),packet);
       }
       while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
 	if (inst->myrxfunc) {
-	  //printk(KERN_DEBUG "cheesymac: have rxfunc -- receiving\n");
+	  /*
+	   * Decrypt packet if applicable, send it up the network stack.
+	   */
+	  if (inst->use_crypto) {
+	    cheesymac_rot128(skb);
+	  }
 	  (inst->myrxfunc)(inst->myrxfunc_priv,packet);
 	}
 	else {
-	  //printk(KERN_DEBUG "cheesymac: packet rx -- no rxfunc freeing skb\n");
+	  /*
+	   * No rx function available? Ask phy layer to free the packet.
+	   */
 	  (inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,packet);
 	}
       }
@@ -900,6 +920,9 @@ static int cu_softmac_mac_work_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
     while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
       if (inst->myrxfunc) {
 	//printk(KERN_DEBUG "cheesymac: have rxfunc -- receiving\n");
+	if (inst->use_crypto) {
+	  cheesymac_rot128(skb);
+	}
 	(inst->myrxfunc)(inst->myrxfunc_priv,skb);
       }
       else {
@@ -1229,6 +1252,14 @@ cheesymac_inst_read_proc(char *page, char **start, off_t off,
       *eof = 1;
       break;
 
+    case CHEESYMAC_INST_PROC_USECRYPTO:
+      read_lock(&(inst->mac_busy));
+      intval = inst->use_crypto;
+      read_unlock(&(inst->mac_busy));
+      result = snprintf(dest,count,"%d\n",intval);
+      *eof = 1;
+      break;
+
     default:
       /*
        * Unknown entry -- do something benign
@@ -1297,7 +1328,12 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       inst->maxinflight = intval;
       write_unlock(&(inst->mac_busy));
       break;
-
+    case CHEESYMAC_INST_PROC_USECRYPTO:
+      intval = simple_strtol(kdata,&endp,10);
+      write_lock(&(inst->mac_busy));
+      inst->use_crypto = intval;
+      write_unlock(&(inst->mac_busy));
+      break;
     default:
       break;
     }
@@ -1307,6 +1343,14 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
   }
 
   return result;
+}
+
+static void
+cheesymac_rot128(struct sk_buff* skb) {
+  int i = 0;
+  for (i=0;i<skb->len;i++) {
+    skb->data[i] = ((skb->data[i] + 128) % 256);
+  }
 }
 
 static int
@@ -1454,7 +1498,7 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst) {
   while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
     (inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,skb);
   }
-
+  
   write_unlock(&(inst->mac_busy));
 
   return result;
