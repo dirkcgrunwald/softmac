@@ -100,7 +100,6 @@ typedef struct CHEESYMAC_INSTANCE_t {
   CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC myunloadnotifyfunc;
   void* myunloadnotifyfunc_priv; 
 
-
   /**
    * @brief We keep a unique ID for each instance we create in order to
    * do things like create separate proc directories for the settings
@@ -539,10 +538,11 @@ static int cheesymac_ath_deferalltxdone = CHEESYMAC_DEFAULT_DEFERALLTXDONE;
 #endif
 
 /*
- * Optionally attach the cheesymac to a softmac phy upon loading
+ * Optionally attach the cheesymac to a softmac phy upon loading.
  */
 static int cheesymac_attach_on_load = 0;
 static struct net_device* cheesymac_net_device = 0;
+static CU_SOFTMAC_NETIF_HANDLE cheesymac_softmac_netif = 0;
 
 /*
  * Default root directory for cheesymac procfs entries
@@ -561,6 +561,7 @@ static char* cheesymac_defaultphy = "ath0";
  * to fill out the "%d" field
  */
 static char* cheesymac_netiftemplate = "cheesy%d";
+
 
 module_param(cheesymac_defertx, int, 0644);
 MODULE_PARM_DESC(cheesymac_defertx, "Queue packets and defer transmit to tasklet");
@@ -643,7 +644,7 @@ static int __init softmac_cheesymac_init(void)
 	if (!((newmacinfo.cu_softmac_mac_attach_to_phy)(newmacinfo.mac_private,&athphyinfo))) {
 	  char ifnamebuf[64];
 	  int netid = cheesymac_next_instanceid - 1;
-	  CU_SOFTMAC_NETIF_HANDLE newnetif = 0;
+	  struct net_device* checknet = 0;
 
 	  printk(KERN_DEBUG "CheesyMAC: Attached to PHY\n");
 	  /*
@@ -651,13 +652,32 @@ static int __init softmac_cheesymac_init(void)
 	   */
 	  snprintf(ifnamebuf,64,cheesymac_netiftemplate,netid);
 	  printk(KERN_DEBUG "CheesyMAC: creating netif %s\n",ifnamebuf);
-	  newnetif = cu_softmac_netif_create_eth(ifnamebuf,0,cheesymac_netif_txhelper,newmacinfo.mac_private);
-	  printk(KERN_DEBUG "CheesyMAC: Setting mac unload notify func\n");
-	  (newmacinfo.cu_softmac_mac_set_unload_notify_func)(newmacinfo.mac_private,cu_softmac_netif_detach,newnetif);
-	  printk(KERN_DEBUG "CheesyMAC: Setting netif unload callback func\n");
-	  cu_softmac_netif_set_unload_callback(newnetif,cheesymac_netif_unload_helper,newmacinfo.mac_private);
+	  if ((checknet = dev_get_by_name(ifnamebuf))) {
+	    printk(KERN_DEBUG "CheesyMAC: Attaching to %s\n",ifnamebuf);
+	    cheesymac_softmac_netif = cu_softmac_netif_from_dev(checknet);
+	    dev_put(checknet);
+	    cu_softmac_netif_set_tx_callback(cheesymac_softmac_netif,cheesymac_netif_txhelper,newmacinfo.mac_private);
+	  }
+	  else {
+	    printk(KERN_DEBUG "CheesyMAC: Creating %s\n",ifnamebuf);
+	    cheesymac_softmac_netif = cu_softmac_netif_create_eth(ifnamebuf,0,cheesymac_netif_txhelper,newmacinfo.mac_private);
+	  }
+	  if (cheesymac_softmac_netif) {
+	    printk(KERN_DEBUG "CheesyMAC: Setting mac unload notify func\n");
+	    (newmacinfo.cu_softmac_mac_set_unload_notify_func)(newmacinfo.mac_private,cu_softmac_netif_detach,cheesymac_softmac_netif);
+	    printk(KERN_DEBUG "CheesyMAC: Setting netif unload callback func\n");
+	    cu_softmac_netif_set_unload_callback(cheesymac_softmac_netif,cheesymac_netif_unload_helper,newmacinfo.mac_private);
 
-	  cu_softmac_mac_set_rx_func_cheesymac(newmacinfo.mac_private,cu_softmac_netif_rx_packet,newnetif);
+	    cu_softmac_mac_set_rx_func_cheesymac(newmacinfo.mac_private,cu_softmac_netif_rx_packet,cheesymac_softmac_netif);
+	  }
+	  else {
+	    printk(KERN_ALERT "CheesyMAC: Unable to attach to netif!\n");
+	    /*
+	     * Whack the cheesymac instance we just created
+	     */
+	    cu_softmac_cheesymac_destroy_instance(newmacinfo.mac_private);
+	    memset(&newmacinfo,0,sizeof(CU_SOFTMAC_MACLAYER_INFO));
+	  }
 	}
 	else {
 	  printk(KERN_ALERT "CheesyMAC: Unable to attach to PHY!\n");
@@ -700,9 +720,7 @@ static void __exit softmac_cheesymac_exit(void)
     list_for_each_safe(p,tmp,&cheesymac_instance_list) {
       cheesy_instance = list_entry(p,CHEESYMAC_INSTANCE,list);
       printk(KERN_DEBUG "CheesyMAC: Detaching and destroying instance ID %d\n",cheesy_instance->instanceid);
-      list_del(p);
       cu_softmac_cheesymac_destroy_instance(cheesy_instance);
-      kfree(cheesy_instance);
     }
   }
   else {
@@ -1096,8 +1114,8 @@ int cu_softmac_cheesymac_destroy_instance(void* mypriv) {
     /*
      * Detach/delete this cheesymac instance
      */
+    list_del(&(inst->list));
     cheesymac_cleanup_instance(inst);
-
     kfree(inst);
     inst = 0;
   }
@@ -1624,7 +1642,7 @@ static int cheesymac_cleanup_instance(CHEESYMAC_INSTANCE* inst) {
   while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
     (inst->myphy.cu_softmac_free_skb)(inst->myphy.phyhandle,skb);
   }
-  
+
   write_unlock(&(inst->mac_busy));
 
   return result;
