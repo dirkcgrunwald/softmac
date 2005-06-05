@@ -196,10 +196,17 @@ typedef struct CHEESYMAC_INSTANCE_t {
    */
   struct sk_buff_head rx_skbqueue;
 
+  /*
+   * CODEX STEP 1 BEGIN
+   * Add an instance variable to control use of encryption
+   */
   /**
-   * @brief Do a cheesy rot 128 "encryption" on the data
+   * @brief Do a cheesy rot 128 "encryption"
    */
   int use_crypto;
+  /*
+   * CODEX STEP 1 END
+   */
 
 } CHEESYMAC_INSTANCE;
 
@@ -209,8 +216,19 @@ typedef struct CHEESYMAC_INSTANCE_t {
  * the proc entries to create for each MAC instance.
  */
 typedef struct {
+  /**
+   * @brief Name that will appear in proc directory
+   */
   const char* name;
+  /**
+   * @brief Read/write permissions, e.g. "0644" means read/write
+   * for owner (root), and read-only for group and other users.
+   */
   mode_t mode;
+  /**
+   * @brief A unique ID passed to the read and write handler functions
+   * when data is written to or read from the particular entry.
+   */
   int entryid;
 } CHEESYMAC_INST_PROC_ENTRY;
 
@@ -223,7 +241,17 @@ enum {
   CHEESYMAC_INST_PROC_DEFERTXDONE,
   CHEESYMAC_INST_PROC_DEFERRX,
   CHEESYMAC_INST_PROC_MAXINFLIGHT,
+  /*
+   * CODEX STEP 2 BEGIN
+   * Add a constant for the proc file entry
+   */
+  /*
+   * Allow user to turn encryption on or off
+   */
   CHEESYMAC_INST_PROC_USECRYPTO,
+  /*
+   * CODEX STEP 2 END
+   */
 
   /*
    * CHEESYMAC_INST_PROC_COUNT must be left as the last entry
@@ -262,11 +290,31 @@ static const CHEESYMAC_INST_PROC_ENTRY cheesymac_inst_proc_entries[] = {
     0644,
     CHEESYMAC_INST_PROC_MAXINFLIGHT
   },
+  /*
+   * CODEX STEP 3 BEGIN
+   * Add a description of the proc entry
+   * See CHEESYMAC_INST_PROC_ENTRY
+   */
+  /*
+   * Allow user to turn encryption on or off
+   */
   {
+    /*
+     * Name of the proc entry
+     */
     "usecrypto",
+    /*
+     * Proc entry file permissions
+     */
     0644,
+    /*
+     * Unique ID passed in to the read/write handlers
+     */
     CHEESYMAC_INST_PROC_USECRYPTO
   },
+  /*
+   * CODEX STEP 3 END
+   */
   /*
    * Using this as the "null terminator" for the item list
    */
@@ -418,7 +466,18 @@ static int cheesymac_inst_read_proc(char *page, char **start, off_t off,
 static int cheesymac_inst_write_proc(struct file *file,
 				     const char __user *buffer,
 				     unsigned long count, void *data);
+/*
+ * CODEX STEP 6 BEGIN
+ * Declare the "encryption" function
+ */
+/*
+ * Simple "encryption/decryption" function
+ */
 static void cheesymac_rot128(struct sk_buff* skb);
+/*
+ * CODEX STEP 6 END
+ */
+
 /*
 **
 ** Module parameters
@@ -743,11 +802,18 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
        */
       while ((skb = skb_dequeue(&(inst->tx_skbqueue)))) {
 	/*
+	 * CODEX STEP 8 BEGIN
+	 * Call encryption when send function is in bottom half
+	 */
+	/*
 	 * "Encrypt" packets on the way out if applicable.
 	 */
 	if (inst->use_crypto) {
 	  cheesymac_rot128(skb);
 	}
+	/*
+	 * CODEX STEP 8 END
+	 */
 	cu_softmac_cheesymac_prep_skb(inst,nfh,packet);
 	txresult = (inst->myphy.cu_softmac_sendpacket)(nfh,inst->maxinflight,packet);
 	if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
@@ -881,11 +947,18 @@ static int cu_softmac_mac_packet_rx_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
       while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
 	if (inst->myrxfunc) {
 	  /*
-	   * Decrypt packet if applicable, send it up the network stack.
+	   * CODEX STEP 10 BEGIN
+	   * Decrypt packets in bottom half of receive function
+	   */
+	  /*
+	   * Decrypt packet if applicable
 	   */
 	  if (inst->use_crypto) {
 	    cheesymac_rot128(skb);
 	  }
+	  /*
+	   * CODEX STEP 10 END
+	   */
 	  (inst->myrxfunc)(inst->myrxfunc_priv,packet);
 	}
 	else {
@@ -920,9 +993,19 @@ static int cu_softmac_mac_work_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
     while ((skb = skb_dequeue(&(inst->rx_skbqueue)))) {
       if (inst->myrxfunc) {
 	//printk(KERN_DEBUG "cheesymac: have rxfunc -- receiving\n");
+	/*
+	 * CODEX STEP 11 BEGIN
+	 * Decrypt incoming packets in "work" function
+	 */
+	/*
+	 * Decrypt packets if applicable
+	 */
 	if (inst->use_crypto) {
 	  cheesymac_rot128(skb);
 	}
+	/*
+	 * CODEX STEP 11 END
+	 */
 	(inst->myrxfunc)(inst->myrxfunc_priv,skb);
       }
       else {
@@ -936,6 +1019,19 @@ static int cu_softmac_mac_work_cheesymac(CU_SOFTMAC_PHY_HANDLE nfh,
      */
     while ((skb = skb_dequeue(&(inst->tx_skbqueue)))) {
       cu_softmac_cheesymac_prep_skb(inst,nfh,skb);
+      /*
+       * CODEX STEP 9 BEGIN
+       * In bottom half, so encrypt packets on their way out if applicable
+       */
+      /*
+       * "Encrypt" packets on the way out
+       */
+      if (inst->use_crypto) {
+	cheesymac_rot128(skb);
+      }
+      /*
+       * CODEX STEP 9 END
+       */
       txresult = (inst->myphy.cu_softmac_sendpacket)(nfh,inst->maxinflight,skb);
       if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
 	printk(KERN_ALERT "SoftMAC CheesyMAC: work packet tx failed: %d\n",txresult);
@@ -1252,6 +1348,13 @@ cheesymac_inst_read_proc(char *page, char **start, off_t off,
       *eof = 1;
       break;
 
+      /*
+       * CODEX STEP 4 BEGIN
+       * Add a read handler for the proc file entry
+       */
+      /*
+       * Allow user to check encryption status
+       */
     case CHEESYMAC_INST_PROC_USECRYPTO:
       read_lock(&(inst->mac_busy));
       intval = inst->use_crypto;
@@ -1259,6 +1362,9 @@ cheesymac_inst_read_proc(char *page, char **start, off_t off,
       result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
+      /*
+       * CODEX STEP 4 END
+       */
 
     default:
       /*
@@ -1328,12 +1434,22 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       inst->maxinflight = intval;
       write_unlock(&(inst->mac_busy));
       break;
+      /*
+       * CODEX STEP 5 BEGIN
+       * Add a write handler for the proc entry
+       */
+      /*
+       * Allow user turn encryption on or off
+       */
     case CHEESYMAC_INST_PROC_USECRYPTO:
       intval = simple_strtol(kdata,&endp,10);
       write_lock(&(inst->mac_busy));
       inst->use_crypto = intval;
       write_unlock(&(inst->mac_busy));
       break;
+      /*
+       * CODEX STEP 5 END
+       */
     default:
       break;
     }
@@ -1345,6 +1461,13 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
   return result;
 }
 
+/*
+ * CODEX STEP 7 BEGIN
+ * Implement the "encryption" function
+ */
+/*
+ * Simple "encryption/decryption" function
+ */
 static void
 cheesymac_rot128(struct sk_buff* skb) {
   int i = 0;
@@ -1352,6 +1475,9 @@ cheesymac_rot128(struct sk_buff* skb) {
     skb->data[i] = ((skb->data[i] + 128) % 256);
   }
 }
+/*
+ * CODEX STEP 7 END
+ */
 
 static int
 cu_softmac_mac_attach_to_phy_cheesymac(void* handle,
