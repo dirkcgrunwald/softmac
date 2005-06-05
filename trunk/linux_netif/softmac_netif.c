@@ -117,6 +117,7 @@ cu_softmac_netif_create_eth(char* name,unsigned char* macaddr,
   if (newinst) {
     struct net_device* dev = &(newinst->netdev);
     unsigned char randommacaddr[6];
+    int regresult = 0;
 
     softmac_netif_init_instance(newinst);
     list_add_tail(&newinst->list,&softmac_netif_instance_list);
@@ -150,14 +151,33 @@ cu_softmac_netif_create_eth(char* name,unsigned char* macaddr,
     write_unlock(&(newinst->devlock));
     printk(KERN_DEBUG "SoftMAC netif: create_eth registering netdev\n");
     rtnl_lock();
-    register_netdevice(&(newinst->netdev));
+    regresult = register_netdevice(&(newinst->netdev));
     rtnl_unlock();
-    printk(KERN_DEBUG "SoftMAC netif: create_eth registered netdev\n");
-    write_lock(&(newinst->devlock));
-    newinst->devregistered = 1;
-    write_unlock(&(newinst->devlock));
+    if (!regresult) {
+      printk(KERN_DEBUG "SoftMAC netif: create_eth registered netdev\n");
+      write_lock(&(newinst->devlock));
+      newinst->devregistered = 1;
+      write_unlock(&(newinst->devlock));
+    }
+    else {
+      printk(KERN_DEBUG "SoftMAC netif: create_eth unable to register netdev!\n");
+    }
   }
   return newinst;
+}
+
+/*
+ * Get a netif handle from a dev. Dangerous if you aren't absolutely
+ * sure that the device is of type netif... Should devise some way
+ * of checking for this.
+ */
+CU_SOFTMAC_NETIF_HANDLE
+cu_softmac_netif_from_dev(struct net_device* netdev) {
+  CU_SOFTMAC_NETIF_HANDLE netifhandle = 0;
+  if (netdev) {
+    netifhandle = netdev->priv;
+  }
+  return netifhandle;
 }
 
 /*
@@ -216,12 +236,19 @@ softmac_netif_cleanup_instance(CU_SOFTMAC_NETIF_INSTANCE* inst) {
     inst->txfunc = 0;
     inst->txfunc_priv = 0;
     if (inst->devregistered) {
+      int unregresult = 0;
       printk(KERN_DEBUG "About to unregister %p (%s) -- got lock\n",inst,inst->netdev.name);
       inst->devregistered = 0;
       write_unlock(&(inst->devlock));
       rtnl_lock();
-      unregister_netdevice(&(inst->netdev));
+      unregresult = unregister_netdevice(&(inst->netdev));
       rtnl_unlock();
+      if (unregresult) {
+	printk(KERN_DEBUG "Unregister failed: result == %d\n",unregresult);
+      }
+      else {
+	printk(KERN_DEBUG "Unregister succeeded\n");
+      }
     }
     else {
       write_unlock(&(inst->devlock));
@@ -430,6 +457,7 @@ static void __exit softmac_netif_exit(void)
 }
 
 EXPORT_SYMBOL(cu_softmac_netif_create_eth);
+EXPORT_SYMBOL(cu_softmac_netif_from_dev);
 EXPORT_SYMBOL(cu_softmac_netif_destroy);
 EXPORT_SYMBOL(cu_softmac_netif_rx_packet);
 EXPORT_SYMBOL(cu_softmac_netif_set_tx_callback);

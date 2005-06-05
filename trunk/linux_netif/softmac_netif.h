@@ -57,7 +57,6 @@ cu_softmac_netif_destroy(CU_SOFTMAC_NETIF_HANDLE nif);
 void
 cu_softmac_netif_detach(CU_SOFTMAC_NETIF_HANDLE nif);
 
-
 /*
  * A client should call this function when it has a packet ready
  * to send up to higher layers of the network stack.
@@ -87,5 +86,13 @@ void
 cu_softmac_netif_set_unload_callback(CU_SOFTMAC_NETIF_HANDLE nif,
 				     CU_SOFTMAC_NETIF_SIMPLE_NOTIFY_FUNC unloadfunc,
 				     void* unloadfunc_priv);
+
+/*
+ * Get a netif handle from a dev. Dangerous if you aren't absolutely
+ * sure that the device is of type netif... Should devise some way
+ * of checking for this.
+ */
+CU_SOFTMAC_NETIF_HANDLE
+cu_softmac_netif_from_dev(struct net_device* netdev);
 
 #endif
