@@ -364,7 +364,7 @@ struct ath_softc {
    * we want to make sure that we've got exclusive access to the
    * client struct. 
    */
-  spinlock_t             sc_cu_softmac_mac_lock;
+  rwlock_t             sc_cu_softmac_mac_lock;
 #endif
 };
 

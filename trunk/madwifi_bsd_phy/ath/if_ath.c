@@ -444,7 +444,7 @@ ath_attach(u_int16_t devid, struct net_device *dev)
 
 	atomic_set(&(sc->sc_cu_softmac_tx_packets_inflight),0);
 	memset(&(sc->sc_cu_softmac_mac),0,sizeof(CU_SOFTMAC_MACLAYER_INFO));
-	sc->sc_cu_softmac_mac_lock = SPIN_LOCK_UNLOCKED;
+	sc->sc_cu_softmac_mac_lock = RW_LOCK_UNLOCKED;
 	sc->sc_cu_softmac_txlatency = ATH_CU_SOFTMAC_DEFAULT_TXLATENCY;
 	sc->sc_cu_softmac_phocus_settletime = ATH_CU_SOFTMAC_DEFAULT_PHOCUS_SETTLETIME;
 	sc->sc_cu_softmac_wifictl0 = CU_SOFTMAC_WIFICTL0;
@@ -6935,7 +6935,7 @@ cu_softmac_attach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* ma
   int result = 0;
   // Lock the MAC
   printk(KERN_DEBUG "SoftMAC MADWIFI: About to attach MAC -- getting lock\n");
-  spin_lock(&(sc->sc_cu_softmac_mac_lock));
+  write_lock(&(sc->sc_cu_softmac_mac_lock));
   // detach previous MAC
   if (sc->sc_cu_softmac_mac.cu_softmac_mac_detach) {
     printk(KERN_DEBUG "SoftMAC MADWIFI: Attaching MAC -- detaching old MAC\n");
@@ -6946,7 +6946,7 @@ cu_softmac_attach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* ma
   // XXX check for invalid entires?
   memcpy(&(sc->sc_cu_softmac_mac),macinfo,sizeof(CU_SOFTMAC_MACLAYER_INFO));
   // Unlock the MAC
-  spin_unlock(&(sc->sc_cu_softmac_mac_lock));
+  write_unlock(&(sc->sc_cu_softmac_mac_lock));
   return result;
 }
 
@@ -6960,13 +6960,13 @@ cu_softmac_detach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv) {
   CU_SOFTMAC_MACLAYER_INFO mactmp;
 
   printk(KERN_DEBUG "SoftMAC MADWIFI: About to detach MAC -- getting lock\n");
-  spin_lock(&(sc->sc_cu_softmac_mac_lock));
+  write_lock(&(sc->sc_cu_softmac_mac_lock));
   printk(KERN_DEBUG "SoftMAC MADWIFI: About to detach MAC\n");
   memcpy(&mactmp,&(sc->sc_cu_softmac_mac),sizeof(CU_SOFTMAC_MACLAYER_INFO));
   memset(&(sc->sc_cu_softmac_mac),0,sizeof(CU_SOFTMAC_MACLAYER_INFO));
   (mactmp.cu_softmac_mac_detach)(nfh,mactmp.mac_private,0);
   printk(KERN_DEBUG "SoftMAC MADWIFI: Finished detaching MAC\n");
-  spin_unlock(&(sc->sc_cu_softmac_mac_lock));
+  write_unlock(&(sc->sc_cu_softmac_mac_lock));
 }
 
 u_int64_t
@@ -7539,9 +7539,14 @@ static int
 ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop) {
   struct ath_softc* sc = dev->priv;
   int result = 0;
-  void* macpriv = sc->sc_cu_softmac_mac.mac_private;
+  void* macpriv = 0;
 
+  if (!read_trylock(&(sc->sc_cu_softmac_mac_lock))) {
+    dev_kfree_skb_any(skb);
+    return 0;
+  }
   // check to see if we've got a softmac plugin, defer handling to it.
+  macpriv = sc->sc_cu_softmac_mac.mac_private;
   if (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_rx) {
     int rxresult = CU_SOFTMAC_MAC_NOTIFY_OK;
     if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
@@ -7580,6 +7585,7 @@ ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop) {
     dev_kfree_skb_any(skb);
     result = 0;
   }
+  read_unlock(&(sc->sc_cu_softmac_mac_lock));
   return result;
 }
  
@@ -7853,27 +7859,37 @@ ath_cu_softmac_handle_txdone(struct net_device* dev, int intop) {
 	atomic_dec(&(sc->sc_cu_softmac_tx_packets_inflight));
 	skb = bf->bf_skb;
 
-	if (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_tx_done) {
-	  int txdoneresult = (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_tx_done)(dev,macpriv,skb,intop);
-	  if (CU_SOFTMAC_MAC_NOTIFY_OK == txdoneresult) {
-	    result = 0;
-	  }
-	  else if (CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN == txdoneresult) {
-	    result = 1;
+	if (read_trylock(&(sc->sc_cu_softmac_mac_lock))) {
+	  // XXX make a dummy MAC layer to avoid this check?
+	  if (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_tx_done) {
+	    int txdoneresult = (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_tx_done)(dev,macpriv,skb,intop);
+	    if (CU_SOFTMAC_MAC_NOTIFY_OK == txdoneresult) {
+	      result = 0;
+	    }
+	    else if (CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN == txdoneresult) {
+	      result = 1;
+	    }
+	    else {
+	      /*
+	       * Something went wrong -- free the packet and move on.
+	       */
+	      dev_kfree_skb(skb);
+	      skb = 0;
+	      result = 0;
+	    }
 	  }
 	  else {
 	    /*
-	     * Something went wrong -- free the packet and move on.
+	     * No hook function set -- free the packet and move on.
 	     */
 	    dev_kfree_skb(skb);
 	    skb = 0;
 	    result = 0;
 	  }
+	  read_unlock(&(sc->sc_cu_softmac_mac_lock));
 	}
 	else {
-	  /*
-	   * No hook function set -- free the packet and move on.
-	   */
+	  // unable to get lock -- free packet and move on
 	  dev_kfree_skb(skb);
 	  skb = 0;
 	  result = 0;
@@ -7913,10 +7929,14 @@ static void
 ath_cu_softmac_work_tasklet(TQUEUE_ARG data) {
   struct net_device *dev = (struct net_device *)data;
   struct ath_softc *sc = dev->priv;
-  void* macpriv = sc->sc_cu_softmac_mac.mac_private;
+  void* macpriv = 0;
 
+  if (!read_trylock(&(sc->sc_cu_softmac_mac_lock))) {
+    return;
+  }
   // See if we've got a "hook" function set -- run it if we do
   //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet\n");
+  macpriv = sc->sc_cu_softmac_mac.mac_private;
   if (sc->sc_cu_softmac_mac.cu_softmac_mac_work) {
     int workresult = CU_SOFTMAC_MAC_NOTIFY_OK;
     int needmark = 0;
@@ -7930,6 +7950,7 @@ ath_cu_softmac_work_tasklet(TQUEUE_ARG data) {
       }
     }
   }
+  read_unlock(&(sc->sc_cu_softmac_mac_lock));
 }
 
 // XXX beat the header stuff into shape...
