@@ -1,0 +1,55 @@
+##########################################
+## Installation steps for CU_SOFTMAC
+##
+##
+##########################################
+
+## Installing
+
+1) Install a Linux Distribution of your choice
+   (we will be working and especially supporting
+   Mandrake Linux 10.1)
+
+2) Replace the installed kernel with 2.6.11.6
+   Compile and install the kernel anywhere, but
+   please make sure that a symbolic link exists
+   to your source code from /usr/src/linux for
+   linking to the madwifi drivers. Make sure to 
+   compile the crypto API into the kernel.
+
+##### NEW!!
+
+3) Use make in sdrnets/software/drivers/softmac/ 
+   to build and install the packages madwifi_bsd_phy
+   and cheesymac 
+
+##### NEW!!
+   
+3) Make and make install the madwifi_bsd_phy
+   package in sdrnets/software/drivers/softmac/
+
+4) Use the buildme.sh script to install the 
+   linux_netif package in sdrnets/software/
+   drivers/softmac/
+
+5) To install the cheesymac MAC layer, within
+   the cheesymac directory,
+   a) Create the following 3 symbolic links
+     ln -s ../cu_softmac_api.h .
+     ln -s ../linux_netif/softmac_netif.h
+     ln -s ../madwifi_bsd_phy/cu_softmac_ath_api.h .
+   b) Install cheesymac using the buildme script
+
+## Running
+
+1) Load the madwifi and cheesymac driver with the scripts
+    load_softmac_base.sh
+    load_cheesymac.sh
+
+2) Now, you've got a new (virtual) interface called cheesymac1
+   you can address and bring up via ifconfig
+
+3) HAVE FUN
+
+4) To unload the cheesymac MAC layer, run the script
+    unload_cheesymac.sh
