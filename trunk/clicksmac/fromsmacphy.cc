@@ -37,7 +37,7 @@ FromSMACPHY::configure(Vector<String> &conf, ErrorHandler *errh)
     return -1;
   
   if (smacel) {
-    _smacphy = smacel->cast("ClickSMACPHY");
+    _smacphy = smacel->cast("ClickSMACPHYath");
   }
 
   if (!_smacphy) {

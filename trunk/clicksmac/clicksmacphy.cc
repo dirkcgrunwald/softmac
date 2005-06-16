@@ -137,6 +137,7 @@ ClickSMACPHY::cu_softmac_mac_packet_tx_done(CU_SOFTMAC_PHY_HANDLE ph,void* me,st
 int
 ClickSMACPHY::cu_softmac_mac_packet_rx(CU_SOFTMAC_PHY_HANDLE ph,void* me,struct sk_buff* thepacket,int intop) {
   ClickSMACPHY* obj = me;
+  //click_chatter("ClickSMACPHY: cu_softmac_mac_packet_rx\n");
   obj->_packetrxsink->PacketEvent(Packet::make(thepacket),PacketEventSink::RX);
   return CU_SOFTMAC_MAC_NOTIFY_OK;
 }
