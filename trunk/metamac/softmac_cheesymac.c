@@ -76,13 +76,8 @@ typedef struct MACS_t {
 			
 	rwlock_t mac_busy;
 	
-		
-	CU_SOFTMAC_MAC_RX_FUNC myrxfunc;
-	void* myrxfunc_priv;
-	CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC myunloadnotifyfunc;
-	void* myunloadnotifyfunc_priv; 
+	CU_SOFTMAC_MACLAYER_INFO mac;
 
-		
 } MAC_INSTANCE;
 
 /**
@@ -646,8 +641,8 @@ metamac_set_rx_func_cheesymac(char *name,
 		//inst->myrxfunc = rxfunc;
 		//inst->myrxfunc_priv = rxpriv;
 		
-		inst->macs[i]->myrxfunc = rxfunc;
-		inst->macs[i]->myrxfunc_priv = rxpriv;
+		//inst->macs[i]->myrxfunc = rxfunc;
+		//inst->macs[i]->myrxfunc_priv = rxpriv;
 		
 		result=0;
 		break;
@@ -1558,9 +1553,12 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       
       inst->macs[inst->runningmacs] = kmalloc(sizeof(MAC_INSTANCE), GFP_KERNEL);
       inst->macs[inst->runningmacs]->name = kmalloc(result, GFP_KERNEL);
-      copy_from_user((inst->macs[inst->runningmacs])->name, buffer, result);
+      copy_from_user((inst->macs[inst->runningmacs])->name, buffer, result-1);
+
+      // Create and fetch a new instance
+      inst->mac = cu_softmac_layer_new_instance(inst->macs[inst->runningmacs])->name);  
+
       inst->runningmacs++;
-      
       write_unlock(&(inst->mac_busy));
       break;
      case CHEESYMAC_INST_PROC_DELETEMAC:
@@ -1568,6 +1566,10 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       write_lock(&(inst->mac_busy));
       if((inst->runningmacs)>=1)
       {
+      	CU_SOFTMAC_MACLAYER_INFO *macinfo = inst->macs[inst->runningmacs]->mac;
+	char *n = inst->macs[inst->runningmacs]->name;
+      	cu_softmac_layer_free_instance(n, macinfo);
+      
       	kfree(inst->macs[inst->runningmacs]);
 	inst->runningmacs--;
       }
