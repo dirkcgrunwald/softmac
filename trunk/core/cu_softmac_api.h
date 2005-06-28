@@ -139,14 +139,21 @@
  */
 
 /**
+ * @brief Forward declaration of the structs containing layer information
+ */
+struct CU_SOFTMAC_LAYER_INFO_t;
+struct CU_SOFTMAC_MACLAYER_INFO_t;
+struct CU_SOFTMAC_PHYLAYER_INFO_t;
+
+/**
  * @brief Maximum size of a MAC,PHY,LAYER name in SoftMAC
  */
 #define CU_SOFTMAC_NAME_SIZE 64
 
 /**
- * @brief Functions/variables exported by ALL layers.
+ * @brief Functions and variables exported by ALL layer classes
  */
-typedef struct {
+typedef struct CU_SOFTMAC_LAYER_INFO_t {
 
     /**
      * @brief Layer name.  like "cheesymac" or "ath"
@@ -156,125 +163,126 @@ typedef struct {
     /**
      * @brief Create a new instance of this layer type
      */
-    void *(*cu_softmac_layer_new_instance)(void *layer_private);
+    void *(*cu_softmac_layer_new_instance)(void*);
 
     /**
      * @brief Destroy an existing instance of this layer type
      */
-    void (*cu_softmac_layer_free_instance)(void *layer_private, void *inst);
+    void (*cu_softmac_layer_free_instance)(void*, void *inst);
 
-    
+    /**
+     * @brief Private data
+     */
     void *layer_private;
 
     /* softmac internal */
     struct hlist_node name_hlist;
 } CU_SOFTMAC_LAYER_INFO;
 
-/**
- * @brief Handle used by the specific PHY layer for its internal data
- */
-typedef void* CU_SOFTMAC_PHY_HANDLE;
-
-/**
- * @brief Forward declaration of the struct containing MAC layer information
- */
-struct CU_SOFTMAC_MACLAYER_INFO_t;
 
 /**
  * @brief Functions/variables exported by PHY layer.
  */
-typedef struct {
+typedef struct CU_SOFTMAC_PHYLAYER_INFO_t {
+    
+    /**
+     * @brief PHY layer instance name.  like "ath0"
+     */
+    char name[CU_SOFTMAC_NAME_SIZE];
+    
+    /** 
+     * @brief Layer information
+     */
+    CU_SOFTMAC_LAYER_INFO *layer;
 
-  /**
-   * @brief PHY layer instance name.  like "ath0"
-   */
-  char name[CU_SOFTMAC_NAME_SIZE];
+    /**
+     * @brief Attach a MAC layer to the PHY layer
+     */
+    int (*cu_softmac_phy_attach_mac)(void *, struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
 
-  /**
-   * @brief Attach a MAC layer to the PHY layer
-   */
-  int (*cu_softmac_attach_mac)(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
+    /**
+     * @brief Detach a MAC layer from the PHY layer
+     *
+     * Tell the softmac PHY that we are leaving the building. The semantics
+     * of this call are such that *after* it returns the SoftMAC PHY won't
+     * make any new calls into the MAC layer.
+     */
+    void (*cu_softmac_phy_detach_mac)(void*, void* mypriv);
+    /**
+     * @brief Get current time
+     *
+     * This function is grouped with the PHY layer, even though it may
+     * appear to be more of an OS-related function. However, some PHY layers
+     * may have their own high-precision clocks that the MAC layer should
+     * be using. For example, the Atheros PHY layer has such a clock.
+     */
+    u_int64_t (*cu_softmac_phy_get_time)(void*);
 
-  /**
-   * @brief Detach a MAC layer from the PHY layer
-   *
-   * Tell the softmac PHY that we are leaving the building. The semantics
-   * of this call are such that *after* it returns the SoftMAC PHY won't
-   * make any new calls into the MAC layer.
-   */
-  void (*cu_softmac_detach_mac)(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv);
-  /**
-   * @brief Get current time
-   *
-   * This function is grouped with the PHY layer, even though it may
-   * appear to be more of an OS-related function. However, some PHY layers
-   * may have their own high-precision clocks that the MAC layer should
-   * be using. For example, the Atheros PHY layer has such a clock.
-   */
-  u_int64_t (*cu_softmac_get_time)(CU_SOFTMAC_PHY_HANDLE nfh);
+    /**
+     * @brief Set current time
+     */
+    void (*cu_softmac_phy_set_time)(void*,u_int64_t time);
 
-  /**
-   * @brief Set current time
-   */
-  void (*cu_softmac_set_time)(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t time);
+    /**
+     * @brief Schedule the MAC layer <i>work</i> callback to be run
+     * as soon as possible.
+     */
+    void (*cu_softmac_phy_schedule_work_asap)(void*);
 
-  /**
-   * @brief Schedule the MAC layer <i>work</i> callback to be run
-   * as soon as possible.
-   */
-  void (*cu_softmac_schedule_work_asap)(CU_SOFTMAC_PHY_HANDLE nfh);
+    /**
+     * @brief Allocate space for a packet.
+     *
+     * This function allocates an sk_buff with sufficient space to hold 
+     * <i>datalen </i> bytes. This also includes sufficient headroom for whatever
+     * additional headers the PHY layer may need to add as well as handling any
+     * specia alignment or location requirements for efficient transfer to
+     * hardware. For example, the Atheros PHY layer requires five extra bytes at
+     * the beginning of each packet to ensure data integrity and
+     * cacheline alignment to ensure speedy DMA transfers.
+     */
+    struct sk_buff* (*cu_softmac_phy_alloc_skb)(void*,int datalen);
 
-  /**
-   * @brief Allocate space for a packet.
-   *
-   * This function allocates an sk_buff with sufficient space to hold 
-   * <i>datalen </i> bytes. This also includes sufficient headroom for whatever
-   * additional headers the PHY layer may need to add as well as handling any
-   * specia alignment or location requirements for efficient transfer to
-   * hardware. For example, the Atheros PHY layer requires five extra bytes at
-   * the beginning of each packet to ensure data integrity and
-   * cacheline alignment to ensure speedy DMA transfers.
-   */
-  struct sk_buff* (*cu_softmac_alloc_skb)(CU_SOFTMAC_PHY_HANDLE nfh,int datalen);
+    /**
+     * @brief Free an sk_buff (packet) either allocated by a call to
+     * CU_SOFTMAC_PHY_ALLOC_SKB_FUNC or passed in from the PHY layer.
+     */
+    void (*cu_softmac_phy_free_skb)(void*,struct sk_buff*);
 
-  /**
-   * @brief Free an sk_buff (packet) either allocated by a call to
-   * CU_SOFTMAC_PHY_ALLOC_SKB_FUNC or passed in from the PHY layer.
-   */
-  void (*cu_softmac_free_skb)(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff*);
+    /**
+     * @brief Send a packet, only permitting max_packets_inflight to be pending
+     */
+    int (*cu_softmac_phy_sendpacket)(void*,int max_packets_inflight,struct sk_buff* skb);
 
-  /**
-   * @brief Send a packet, only permitting max_packets_inflight to be pending
-   */
-  int (*cu_softmac_sendpacket)(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb);
+    /**
+     * @brief Send a packet, only permitting max_packets_inflight to be pending,
+     * do NOT free the sk_buff upon failure.
+     *
+     * This allows callers to do things
+     * like requeue a packet if they care to make another attempt to send the
+     * packet that failed to go out.
+     */
+    int (*cu_softmac_phy_sendpacket_keepskbonfail)(void*,int max_packets_inflight,struct sk_buff* skb);
 
-  /**
-   * @brief Send a packet, only permitting max_packets_inflight to be pending,
-   * do NOT free the sk_buff upon failure.
-   *
-   * This allows callers to do things
-   * like requeue a packet if they care to make another attempt to send the
-   * packet that failed to go out.
-   */
-  int (*cu_softmac_sendpacket_keepskbonfail)(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb);
+    /**
+     * @brief Ask the phy layer how long (in microseconds) it will take for this
+     * packet to be transmitted, not including any initial transmit latency.
+     */
+    u_int32_t (*cu_softmac_phy_get_duration)(void*, struct sk_buff* skb);
 
-  /**
-   * @brief Ask the phy layer how long (in microseconds) it will take for this
-   * packet to be transmitted, not including any initial transmit latency.
-   */
-  u_int32_t (*cu_softmac_get_duration)(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb);
+    /**
+     * @brief Ask the phy layer how much "lead time" there is between a request
+     * to send a packet and the time it hits the air.
+     */
+    u_int32_t (*cu_softmac_phy_get_txlatency)(void*);
 
-  /**
-   * @brief Ask the phy layer how much "lead time" there is between a request
-   * to send a packet and the time it hits the air.
-   */
-  u_int32_t (*cu_softmac_get_txlatency)(CU_SOFTMAC_PHY_HANDLE nfh);
+    /**
+     * @brief PHY layer private data
+     */
+    void *phy_private;
 
-  CU_SOFTMAC_PHY_HANDLE phyhandle;
-
-  /* softmac internal */
-  atomic_t refcnt;
-  struct hlist_node name_hlist;
+    /* softmac internal */
+    atomic_t refcnt;
+    struct hlist_node name_hlist;
 
 } CU_SOFTMAC_PHYLAYER_INFO;
 
@@ -282,10 +290,10 @@ typedef struct {
  * @brief Errors that might be returned from the send packet procedures
  */
 enum {
-  CU_SOFTMAC_PHY_SENDPACKET_OK = 0,
-  CU_SOFTMAC_PHY_SENDPACKET_ERR_TOOMANYPENDING = -1000,
-  CU_SOFTMAC_PHY_SENDPACKET_ERR_NETDOWN = -1001,
-  CU_SOFTMAC_PHY_SENDPACKET_ERR_NOBUFFERS = -1002,
+    CU_SOFTMAC_PHY_SENDPACKET_OK = 0,
+    CU_SOFTMAC_PHY_SENDPACKET_ERR_TOOMANYPENDING = -1000,
+    CU_SOFTMAC_PHY_SENDPACKET_ERR_NETDOWN = -1001,
+    CU_SOFTMAC_PHY_SENDPACKET_ERR_NOBUFFERS = -1002,
 };
 
 
@@ -295,7 +303,7 @@ enum {
 ** SoftMAC MAC Layer Functions
 **
 **
- */
+*/
 
 typedef int (*CU_SOFTMAC_MAC_RX_FUNC)(void*,struct sk_buff* packet);
 typedef void (*CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC)(void*);
@@ -305,61 +313,66 @@ typedef void (*CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC)(void*);
  */
 typedef struct CU_SOFTMAC_MACLAYER_INFO_t {
 
-  /**
-   * @brief MAC layer instance name.  like "cheesy1"
-   */
-  char name[CU_SOFTMAC_NAME_SIZE];
+    /**
+     * @brief MAC layer instance name.  like "cheesy1"
+     */
+    char name[CU_SOFTMAC_NAME_SIZE];
 
-  /**
-   * @brief Called when an ethernet-encapsulated packet is ready to transmit.
-   */
-  int (*cu_softmac_mac_packet_tx)(void*,struct sk_buff* thepacket,int intop);
+    /** 
+     * @brief Layer information
+     */
+    CU_SOFTMAC_LAYER_INFO *layer;
 
-  /**
-   * @brief Called when transmission of a packet is complete.
-   */
-  int (*cu_softmac_mac_packet_tx_done)(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop);
+    /**
+     * @brief Called when an ethernet-encapsulated packet is ready to transmit.
+     */
+    int (*cu_softmac_mac_packet_tx)(void*,struct sk_buff* thepacket,int intop);
 
-  /**
-   * @brief Called upon receipt of a packet.
-   */
-  int (*cu_softmac_mac_packet_rx)(CU_SOFTMAC_PHY_HANDLE,void*,struct sk_buff* thepacket,int intop);
+    /**
+     * @brief Called when transmission of a packet is complete.
+     */
+    int (*cu_softmac_mac_packet_tx_done)(void*,struct sk_buff* thepacket,int intop);
 
-  /**
-   * @brief Notify the MAC layer that it is time to do some work.
-   */
-  int (*cu_softmac_mac_work)(CU_SOFTMAC_PHY_HANDLE,void*,int intop);
+    /**
+     * @brief Called upon receipt of a packet.
+     */
+    int (*cu_softmac_mac_packet_rx)(void*,struct sk_buff* thepacket,int intop);
 
-  /**
-   * @brief Notify the MAC layer that it is being removed from the PHY.
-   */   
-  int (*cu_softmac_mac_detach)(CU_SOFTMAC_PHY_HANDLE,void*,int intop);
+    /**
+     * @brief Notify the MAC layer that it is time to do some work.
+     */
+    int (*cu_softmac_mac_work)(void*,int intop);
 
-  /**
-   * @brief Tell the MAC layer to attach to the specified PHY layer.
-   */
-  int (*cu_softmac_mac_attach_to_phy)(void*,CU_SOFTMAC_PHYLAYER_INFO*);
+    /**
+     * @brief Notify the MAC layer that it is being removed from the PHY.
+     */   
+    int (*cu_softmac_mac_detach)(void*,int intop);
 
-  /**
-   * @brief Tell the MAC layer to detach from the specified PHY layer.
-   */
-  int (*cu_softmac_mac_detach_from_phy)(void*);
+    /**
+     * @brief Tell the MAC layer to attach to the specified PHY layer.
+     */
+    int (*cu_softmac_mac_attach_to_phy)(void*,CU_SOFTMAC_PHYLAYER_INFO*);
 
-  /**
-   * @brief
-   */
-  int (*cu_softmac_mac_set_rx_func)(void*,CU_SOFTMAC_MAC_RX_FUNC,void*);
+    /**
+     * @brief Tell the MAC layer to detach from the specified PHY layer.
+     */
+    int (*cu_softmac_mac_detach_from_phy)(void*);
 
-  /**
-   * @brief Notify the MAC layer that it is being removed from the PHY.
-   */
-  int (*cu_softmac_mac_set_unload_notify_func)(void*,CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC,void*);
+    /**
+     * @brief
+     */
+    int (*cu_softmac_mac_set_rx_func)(void*,CU_SOFTMAC_MAC_RX_FUNC,void*);
 
-  void* mac_private;
+    /**
+     * @brief Notify the MAC layer that it is being removed from the PHY.
+     */
+    int (*cu_softmac_mac_set_unload_notify_func)(void*,CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC,void*);
 
-  /* softmac internal */
-  atomic_t refcnt;
-  struct hlist_node name_hlist;
+    void* mac_private;
+
+    /* softmac internal */
+    atomic_t refcnt;
+    struct hlist_node name_hlist;
 
 } CU_SOFTMAC_MACLAYER_INFO;
 
@@ -368,54 +381,134 @@ typedef struct CU_SOFTMAC_MACLAYER_INFO_t {
  * a notification from the SoftMAC PHY
  */
 enum {
-  /**
-   * @brief Finished running, all is well
-   */
-  CU_SOFTMAC_MAC_NOTIFY_OK = 0,
-  /**
-   * @brief Finished for now, but schedule task to run again ASAP
-   */
-  CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN = 1,
-  /**
-   * @brief The MAC layer is busy and cannot take delivery of a packet.
-   * The PHY layer should free the packet and continue.
-   */
-  CU_SOFTMAC_MAC_NOTIFY_BUSY = 2,
-  /**
-   * @brief The MAC layer is hosed. Free the packet and continue.
-   */
-  CU_SOFTMAC_MAC_NOTIFY_HOSED = 3,
+    /**
+     * @brief Finished running, all is well
+     */
+    CU_SOFTMAC_MAC_NOTIFY_OK = 0,
+    /**
+     * @brief Finished for now, but schedule task to run again ASAP
+     */
+    CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN = 1,
+    /**
+     * @brief The MAC layer is busy and cannot take delivery of a packet.
+     * The PHY layer should free the packet and continue.
+     */
+    CU_SOFTMAC_MAC_NOTIFY_BUSY = 2,
+    /**
+     * @brief The MAC layer is hosed. Free the packet and continue.
+     */
+    CU_SOFTMAC_MAC_NOTIFY_HOSED = 3,
 };
 
 enum {
-  CU_SOFTMAC_MAC_TX_OK = 0,
-  CU_SOFTMAC_MAC_TX_FAIL = -1,
+    CU_SOFTMAC_MAC_TX_OK = 0,
+    CU_SOFTMAC_MAC_TX_FAIL = -1,
 };
 
 
 /**
- * SoftMAC Core Services 
+ **
+ **
+ ** SoftMAC Core Services 
+ **
+ **
  */
 
+/**
+ * @brief Create a new instance of a SoftMAC PHY or MAC layer
+ * The 'cu_softmac_layer_new_instance' function corresponding to 'name' is called
+ */
 void *cu_softmac_layer_new_instance(const char *name);
-void cu_softmac_layer_free_instance(const char *name, void *inst);
-void cu_softmac_layer_register(CU_SOFTMAC_LAYER_INFO *info, const char *name);
+
+/**
+ * @brief Call the 'cu_softmac_layer_free_instance' function for the SoftMAC 
+ * layer associatied with 'inst'
+ */
+void cu_softmac_layer_free_instance(void *inst);
+
+/**
+ * @brief Register a PHY or MAC layer with SoftMAC
+ */
+void cu_softmac_layer_register(CU_SOFTMAC_LAYER_INFO *info);
+
+/**
+ * @brief Remove a PHY or MAC layer from SoftMAC
+ */
 void cu_softmac_layer_unregister(CU_SOFTMAC_LAYER_INFO *info);
 
+/**
+ * @brief Register a MAC layer instance with SoftMAC
+ */
 void cu_softmac_macinfo_register(CU_SOFTMAC_MACLAYER_INFO* macinfo);
+
+/**
+ * @brief Remove a MAC layer instance from SoftMAC
+ */
 void cu_softmac_macinfo_unregister(CU_SOFTMAC_MACLAYER_INFO* macinfo);
+
+/**
+ * @brief Get a private copy of 'macinfo' (increment ref count)
+ */
+CU_SOFTMAC_MACLAYER_INFO* cu_softmac_macinfo_get(CU_SOFTMAC_MACLAYER_INFO* macinfo); 
+
+/**
+ * @brief Get a private copy of pointer to macinfo structure for 'name' (increment ref count)
+ */
 CU_SOFTMAC_MACLAYER_INFO* cu_softmac_macinfo_get_by_name(const char *name);
+
+/**
+ * @brief Allocate a macinfo structure representing a MAC layer instance (ref count = 1)
+ */
 CU_SOFTMAC_MACLAYER_INFO* cu_softmac_macinfo_alloc(void);
-void cu_softmac_macinfo_free(CU_SOFTMAC_MACLAYER_INFO* macinfo); 
+
+/**
+ * @brief Dereference a pointer to a macinfo structure (decrement ref count), possibly deallocate
+ */
+void cu_softmac_macinfo_free(CU_SOFTMAC_MACLAYER_INFO* macinfo);
+
+/**
+ * @brief Initialize 'macinfo' to zero and set function pointers to "do nothing" functions
+ */
 void cu_softmac_macinfo_init(CU_SOFTMAC_MACLAYER_INFO* macinfo);
 
+/**
+ * @brief Register a PHY layer instance with SoftMAC
+ */
 void cu_softmac_phyinfo_register(CU_SOFTMAC_PHYLAYER_INFO* phyinfo);
+
+/**
+ * @brief Remove a PHY layer instance from SoftMAC
+ */
 void cu_softmac_phyinfo_unregister(CU_SOFTMAC_PHYLAYER_INFO* phyinfo);
+
+/**
+ * @brief Get a private copy of 'phyinfo' (increment ref count)
+ */
+CU_SOFTMAC_PHYLAYER_INFO* cu_softmac_phyinfo_get(CU_SOFTMAC_PHYLAYER_INFO* phyinfo);
+
+/**
+ * @brief Get a private copy of pointer to phyinfo structure for 'name'
+ */
 CU_SOFTMAC_PHYLAYER_INFO* cu_softmac_phyinfo_get_by_name(const char *name);
+
+/**
+ * @brief Allocate a phyinfo structure representing a PHY layer instance (ref count = 1)
+ */
 CU_SOFTMAC_PHYLAYER_INFO* cu_softmac_phyinfo_alloc(void);
+
+/**
+ * @brief Dereference a pointer to a phyinfo structure (decrement ref count), possibly deallocate
+ */
 void cu_softmac_phyinfo_free(CU_SOFTMAC_PHYLAYER_INFO* phyinfo); 
+
+/**
+ * @brief Initialize 'phyinfo' to zero and set function pointers to "do nothing" functions
+ */
 void cu_softmac_phyinfo_init(CU_SOFTMAC_PHYLAYER_INFO* phyinfo);
 
+
+
+/* old stuff */
 
 /*
  * We're also defining guidelines for "composable" MAC modules.

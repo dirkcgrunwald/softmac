@@ -97,40 +97,40 @@ softmac_lists_init(void)
 */
 
 int
-cu_softmac_phy_attach_mac_dummy(CU_SOFTMAC_PHY_HANDLE nfh,struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo) 
+cu_softmac_phy_attach_mac_dummy(void *mydata, struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo) 
 {
   return -1;
 }
 
 void
-cu_softmac_phy_detach_mac_dummy(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv) 
+cu_softmac_phy_detach_mac_dummy(void *mydata, void *mypriv) 
 {
 }
 
 u_int64_t
-cu_softmac_phy_get_time_dummy(CU_SOFTMAC_PHY_HANDLE nfh) 
+cu_softmac_phy_get_time_dummy(void *mydata) 
 {
     return 0;
 }
 
 void
-cu_softmac_phy_set_time_dummy(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t time) 
+cu_softmac_phy_set_time_dummy(void *mydata, u_int64_t time) 
 {
 }
 
 void
-cu_softmac_phy_schedule_work_asap_dummy(CU_SOFTMAC_PHY_HANDLE nfh) 
+cu_softmac_phy_schedule_work_asap_dummy(void *mydata) 
 {
 }
 
 struct sk_buff*
-cu_softmac_phy_alloc_skb_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int datalen) 
+cu_softmac_phy_alloc_skb_dummy(void *mydata, int datalen) 
 {
   return 0;
 }
 
 void
-cu_softmac_phy_free_skb_dummy(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb)
+cu_softmac_phy_free_skb_dummy(void *mydata, struct sk_buff* skb)
 {
     /*
      * Free the packet if it's not null -- not technically "nothing" but
@@ -142,7 +142,7 @@ cu_softmac_phy_free_skb_dummy(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb)
 }
 
 int
-cu_softmac_phy_sendpacket_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb) 
+cu_softmac_phy_sendpacket_dummy(void *mydata, int max_packets_inflight, struct sk_buff* skb) 
 {
     /*
      * Free the packet if it's not null -- not technically "nothing" but
@@ -155,7 +155,9 @@ cu_softmac_phy_sendpacket_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflig
 }
 
 int
-cu_softmac_phy_sendpacket_keepskbonfail_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int max_packets_inflight,struct sk_buff* skb) 
+cu_softmac_phy_sendpacket_keepskbonfail_dummy(void *mydata,
+					      int max_packets_inflight,
+					      struct sk_buff* skb) 
 {
     /*
      * Free the packet if it's not null -- not technically "nothing" but
@@ -168,81 +170,70 @@ cu_softmac_phy_sendpacket_keepskbonfail_dummy(CU_SOFTMAC_PHY_HANDLE nfh,int max_
 }
 
 u_int32_t
-cu_softmac_phy_get_duration_dummy(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) 
+cu_softmac_phy_get_duration_dummy(void *mydata,struct sk_buff* skb) 
 { 
     return 0; 
 }
 
 
 u_int32_t
-cu_softmac_phy_get_txlatency_dummy(CU_SOFTMAC_PHY_HANDLE nfh) 
+cu_softmac_phy_get_txlatency_dummy(void *mydata) 
 {
     return 0;
 }
 
 static int
-cu_softmac_mac_detach_dummy(CU_SOFTMAC_PHY_HANDLE nfh,void* mydata,int intop)
+cu_softmac_mac_detach_dummy(void *mydata, int intop)
 {
     return 0;
 }
 
 static int
-cu_softmac_mac_work_dummy(CU_SOFTMAC_PHY_HANDLE nfh,
-			      void* mydata, int intop)
+cu_softmac_mac_work_dummy(void *mydata, int intop)
 {
     return 0;
 }
 
 static int
-cu_softmac_mac_packet_rx_dummy(CU_SOFTMAC_PHY_HANDLE nfh,
-			       void* mydata,
-			       struct sk_buff* packet,
-			       int intop)
+cu_softmac_mac_packet_rx_dummy(void *mydata, struct sk_buff* packet, int intop)
 {
     return 0;
 }
 
 static int
-cu_softmac_mac_packet_tx_done_dummy(CU_SOFTMAC_PHY_HANDLE nfh,
-				    void* mydata,
-				    struct sk_buff* packet,
-				    int intop)
+cu_softmac_mac_packet_tx_done_dummy(void *mydata, struct sk_buff* packet, int intop)
 {
     return 0;
 }
 
 static int
-cu_softmac_mac_packet_tx_dummy(void* mydata,struct sk_buff* packet,
-				   int intop)
+cu_softmac_mac_packet_tx_dummy(void *mydata, struct sk_buff* packet, int intop)
 {
     return 0;
 }
 
 static int
-cu_softmac_mac_attach_to_phy_dummy(void* handle,
-				       CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
+cu_softmac_mac_attach_to_phy_dummy(void *mydata, CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 {
     return 0;
 }
 
 static int
-cu_softmac_mac_detach_from_phy_dummy(void* handle)
+cu_softmac_mac_detach_from_phy_dummy(void *mydata)
 {
     return 0;
 }
 
 static int 
-cu_softmac_mac_set_rx_func_dummy(void* handle,
-				     CU_SOFTMAC_MAC_RX_FUNC rxfunc,
-				     void* rxpriv)
+cu_softmac_mac_set_rx_func_dummy(void *mydata, CU_SOFTMAC_MAC_RX_FUNC rxfunc, void *rxpriv)
 {
     return 0;
 }
 
 static int
-cu_softmac_mac_set_unload_notify_func_dummy(void* handle,
-						CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC unloadfunc,
-						void* unloadpriv)
+cu_softmac_mac_set_unload_notify_func_dummy(void *mydata,
+					    CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC unloadfunc,
+					    void *unloadpriv)
 {
     return 0;
 }
@@ -254,7 +245,7 @@ cu_softmac_mac_set_unload_notify_func_dummy(void* handle,
 **
 */
 
-/* returns CU_SOFTMAC_MACLAYER_INFO or CU_SOFTMAC_PHYLAYER_INFO cast to void* */
+/* returns CU_SOFTMAC_MACLAYER_INFO or CU_SOFTMAC_PHYLAYER_INFO cast to void **/
 void *
 cu_softmac_layer_new_instance(const char *name)
 {
@@ -273,12 +264,14 @@ cu_softmac_layer_new_instance(const char *name)
 }
 
 void
-cu_softmac_layer_free_instance(const char *name, void *inst)
+cu_softmac_layer_free_instance(void *inst)
 {
     printk("%s\n", __func__);
 
     struct hlist_head *head;
     struct hlist_node *p;
+    /* XXX ugly! */
+    const char *name = ((CU_SOFTMAC_MACLAYER_INFO *)(inst))->layer->name;
 
     head = softmac_layer_hash(name);
     hlist_for_each(p, head) {
@@ -292,24 +285,24 @@ cu_softmac_layer_free_instance(const char *name, void *inst)
 
 
 void 
-cu_softmac_layer_register(CU_SOFTMAC_LAYER_INFO *info, const char *name)
+cu_softmac_layer_register(CU_SOFTMAC_LAYER_INFO *info)
 {
     struct hlist_head *head;
     struct hlist_node *p;
 
     /* check for existing */
-    head = softmac_layer_hash(name);
+    head = softmac_layer_hash(info->name);
     hlist_for_each(p, head) {
 	CU_SOFTMAC_LAYER_INFO *l = hlist_entry(p, CU_SOFTMAC_LAYER_INFO, name_hlist);
-	if (!strncmp(l->name, name, CU_SOFTMAC_NAME_SIZE)) {
-	    printk("%s warning: layer %s already registered\n", __func__, name);
+	if (!strncmp(l->name, info->name, CU_SOFTMAC_NAME_SIZE)) {
+	    printk("%s warning: layer %s already registered\n", __func__, info->name);
 	    return;
 	}
     }
     
     /* add it to the list */
     hlist_add_head(&info->name_hlist, head);
-    printk("%s registered layer %s\n", __func__, name);
+    printk("%s registered layer %s\n", __func__, info->name);
 }
 
 void 
@@ -361,18 +354,18 @@ cu_softmac_phyinfo_init(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
     printk("%s\n", __func__);
 
     memset(phyinfo, 0, sizeof(CU_SOFTMAC_PHYLAYER_INFO));
-    phyinfo->cu_softmac_attach_mac = cu_softmac_phy_attach_mac_dummy;
-    phyinfo->cu_softmac_detach_mac = cu_softmac_phy_detach_mac_dummy;
-    phyinfo->cu_softmac_get_time = cu_softmac_phy_get_time_dummy;
-    phyinfo->cu_softmac_set_time = cu_softmac_phy_set_time_dummy;
-    phyinfo->cu_softmac_schedule_work_asap = cu_softmac_phy_schedule_work_asap_dummy;
-    phyinfo->cu_softmac_alloc_skb = cu_softmac_phy_alloc_skb_dummy;
-    phyinfo->cu_softmac_free_skb = cu_softmac_phy_free_skb_dummy;
-    phyinfo->cu_softmac_sendpacket = cu_softmac_phy_sendpacket_dummy;
-    phyinfo->cu_softmac_sendpacket_keepskbonfail = cu_softmac_phy_sendpacket_keepskbonfail_dummy;
-    phyinfo->cu_softmac_get_duration = cu_softmac_phy_get_duration_dummy;
-    phyinfo->cu_softmac_get_txlatency = cu_softmac_phy_get_txlatency_dummy;
-    phyinfo->phyhandle = 0;
+    phyinfo->cu_softmac_phy_attach_mac = cu_softmac_phy_attach_mac_dummy;
+    phyinfo->cu_softmac_phy_detach_mac = cu_softmac_phy_detach_mac_dummy;
+    phyinfo->cu_softmac_phy_get_time = cu_softmac_phy_get_time_dummy;
+    phyinfo->cu_softmac_phy_set_time = cu_softmac_phy_set_time_dummy;
+    phyinfo->cu_softmac_phy_schedule_work_asap = cu_softmac_phy_schedule_work_asap_dummy;
+    phyinfo->cu_softmac_phy_alloc_skb = cu_softmac_phy_alloc_skb_dummy;
+    phyinfo->cu_softmac_phy_free_skb = cu_softmac_phy_free_skb_dummy;
+    phyinfo->cu_softmac_phy_sendpacket = cu_softmac_phy_sendpacket_dummy;
+    phyinfo->cu_softmac_phy_sendpacket_keepskbonfail=cu_softmac_phy_sendpacket_keepskbonfail_dummy;
+    phyinfo->cu_softmac_phy_get_duration = cu_softmac_phy_get_duration_dummy;
+    phyinfo->cu_softmac_phy_get_txlatency = cu_softmac_phy_get_txlatency_dummy;
+    phyinfo->phy_private = 0;
 }
 
 void 
@@ -391,8 +384,12 @@ cu_softmac_phyinfo_register(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 	}
     }
     
+    /* increment reference count */
+    phyinfo = cu_softmac_phyinfo_get(phyinfo);
+
     /* add it to the list */
     hlist_add_head(&phyinfo->name_hlist, head);
+
     printk("%s registered %s\n", __func__, phyinfo->name);
 }
 
@@ -411,9 +408,17 @@ cu_softmac_phyinfo_unregister(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 	    return;
 	}
     }
-    
-    /* XXX detatch ? */
 }
+
+CU_SOFTMAC_PHYLAYER_INFO *
+cu_softmac_phyinfo_get(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
+{   
+    printk("%s\n", __func__);
+
+    atomic_inc(&phyinfo->refcnt);
+    return phyinfo;
+}
+
 
 CU_SOFTMAC_PHYLAYER_INFO *
 cu_softmac_phyinfo_get_by_name(const char *name)
@@ -499,6 +504,9 @@ cu_softmac_macinfo_register(CU_SOFTMAC_MACLAYER_INFO* macinfo)
 	}
     }
     
+    /* increment reference count */
+    macinfo = cu_softmac_macinfo_get(macinfo);
+
     /* add it to the list */
     hlist_add_head(&macinfo->name_hlist, head);
     printk("%s registered %s\n", __func__, macinfo->name);
@@ -519,8 +527,13 @@ cu_softmac_macinfo_unregister(CU_SOFTMAC_MACLAYER_INFO* macinfo)
 	    return;
 	}
     }
-    
-    /* XXX detatch ? */
+}
+
+CU_SOFTMAC_MACLAYER_INFO *
+cu_softmac_macinfo_get(CU_SOFTMAC_MACLAYER_INFO *macinfo)
+{
+    atomic_inc(&macinfo->refcnt);
+    return macinfo;
 }
 
 CU_SOFTMAC_MACLAYER_INFO *
@@ -544,7 +557,6 @@ cu_softmac_macinfo_get_by_name(const char *name)
 
     return ret;
 }
-
 
 static int __init softmac_core_init(void)
 {
@@ -570,6 +582,7 @@ EXPORT_SYMBOL(cu_softmac_layer_free_instance );
 
 EXPORT_SYMBOL(cu_softmac_phyinfo_register);
 EXPORT_SYMBOL(cu_softmac_phyinfo_unregister);
+EXPORT_SYMBOL(cu_softmac_phyinfo_get);
 EXPORT_SYMBOL(cu_softmac_phyinfo_get_by_name);
 EXPORT_SYMBOL(cu_softmac_phyinfo_alloc);
 EXPORT_SYMBOL(cu_softmac_phyinfo_free);
@@ -577,6 +590,7 @@ EXPORT_SYMBOL(cu_softmac_phyinfo_init);
 
 EXPORT_SYMBOL(cu_softmac_macinfo_register);
 EXPORT_SYMBOL(cu_softmac_macinfo_unregister);
+EXPORT_SYMBOL(cu_softmac_macinfo_get);
 EXPORT_SYMBOL(cu_softmac_macinfo_get_by_name);
 EXPORT_SYMBOL(cu_softmac_macinfo_alloc);
 EXPORT_SYMBOL(cu_softmac_macinfo_free);
