@@ -45,7 +45,7 @@
 #include "softmac_cheesymac.h"
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Michael Neufeld");
+MODULE_AUTHOR("Michael Neufeld, Christian Doerr");
 
 
 /*
