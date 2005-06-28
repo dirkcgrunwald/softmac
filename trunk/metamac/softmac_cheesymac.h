@@ -128,6 +128,12 @@ cu_softmac_cheesymac_get_instance_params(void* macpriv,
 void
 cu_softmac_cheesymac_set_instance_params(void* macpriv,
 					 CU_SOFTMAC_CHEESYMAC_PARAMETERS* params);
-
+					 
+int 
+metamac_set_rx_func_cheesymac(char *name, 
+				     void* mydata,
+				     CU_SOFTMAC_MAC_RX_FUNC rxfunc,
+				     void* rxpriv);
+					 
 #endif
 

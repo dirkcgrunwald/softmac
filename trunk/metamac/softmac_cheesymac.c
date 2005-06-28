@@ -65,6 +65,26 @@ enum {
   CHEESYMAC_PROCDIRNAME_LEN = 64,
 };
 
+typedef struct MACS_t {
+	/*
+	*
+	*
+	*
+	*/
+
+	char *name;
+			
+	rwlock_t mac_busy;
+	
+		
+	CU_SOFTMAC_MAC_RX_FUNC myrxfunc;
+	void* myrxfunc_priv;
+	CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC myunloadnotifyfunc;
+	void* myunloadnotifyfunc_priv; 
+
+		
+} MAC_INSTANCE;
+
 /**
  * @brief This is the structure containing all of the state information
  * required for each CheesyMAC instance.
@@ -163,6 +183,7 @@ typedef struct CHEESYMAC_INSTANCE_t {
 
   int runningmacs;
   char *names[10];
+  MAC_INSTANCE* macs[10];
   
   /*
    * The cheesymac uses Linux sk_buff queues when it needs
@@ -606,6 +627,37 @@ MODULE_PARM_DESC(cheesymac_defaultphy, "Network interface to use for SoftMAC PHY
 
 module_param(cheesymac_attach_on_load, int, S_IRUSR | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(cheesymac_attach_on_load,"Set to non-zero to have the cheesymac attach itself to the softmac upon loading");
+
+static int 
+metamac_set_rx_func_cheesymac(char *name, 
+				     void* mydata,
+				     CU_SOFTMAC_MAC_RX_FUNC rxfunc,
+				     void* rxpriv) {
+  int result = -1;
+  CHEESYMAC_INSTANCE* inst = mydata;
+  if (inst) {
+    write_lock(&(inst->mac_busy));
+    
+    int i;
+    for(i=0; i<inst->runningmacs; i++)
+    {
+    	if(strncmp(name, inst->macs[i]->name, 10)==0)
+	{
+		//inst->myrxfunc = rxfunc;
+		//inst->myrxfunc_priv = rxpriv;
+		
+		inst->macs[i]->myrxfunc = rxfunc;
+		inst->macs[i]->myrxfunc_priv = rxpriv;
+		
+		result=0;
+		break;
+	}
+    }
+    write_unlock(&(inst->mac_busy));  
+  }
+
+  return result;
+}
 
 static int
 cheesymac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
@@ -1400,13 +1452,15 @@ cheesymac_inst_read_proc(char *page, char **start, off_t off,
       for(i=0; i<inst->runningmacs; i++)
       {
            sprintf(tmp, "%s", layers);
-	   if(i>0) sprintf(layers, "%s %s", tmp, inst->names[i]); else sprintf(layers, "%s", inst->names[i]);
+	   if(i>0) sprintf(layers, "%s %s", tmp, inst->macs[i]->name); else sprintf(layers, "%s", inst->macs[i]->name);
       }
       
       result = snprintf(dest,count,"%s", layers);
       kfree(layers);
       kfree(tmp);
       read_unlock(&(inst->mac_busy));
+      
+      
       
       *eof = 1;
       break;
@@ -1452,7 +1506,6 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
     char kdata[maxkdatalen];
     char* endp = 0;
     long intval = 0;
-    char *macname = kmalloc(10, GFP_KERNEL);
 
     /*
      * Drag the data over into kernel land
@@ -1502,10 +1555,12 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       write_lock(&(inst->mac_busy));
       
       int i;
-      inst->names[inst->runningmacs] = kmalloc(count, GFP_KERNEL);
-      copy_from_user(inst->names[inst->runningmacs], buffer, result);
       
+      inst->macs[inst->runningmacs] = kmalloc(sizeof(MAC_INSTANCE), GFP_KERNEL);
+      inst->macs[inst->runningmacs]->name = kmalloc(result, GFP_KERNEL);
+      copy_from_user((inst->macs[inst->runningmacs])->name, buffer, result);
       inst->runningmacs++;
+      
       write_unlock(&(inst->mac_busy));
       break;
      case CHEESYMAC_INST_PROC_DELETEMAC:
@@ -1513,8 +1568,8 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       write_lock(&(inst->mac_busy));
       if((inst->runningmacs)>=1)
       {
-      	kfree(inst->names[inst->runningmacs]);
-      	inst->runningmacs--;
+      	kfree(inst->macs[inst->runningmacs]);
+	inst->runningmacs--;
       }
       write_unlock(&(inst->mac_busy));
       break;
@@ -1536,8 +1591,6 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
        */
     default:
       break;
-   
-    kfree(macname);
    }
   }
   else {
