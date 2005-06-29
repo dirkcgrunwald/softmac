@@ -92,6 +92,265 @@ softmac_lists_init(void)
 
 /*
 ** 
+** Proc filesystem
+**
+*/
+
+/**
+ * @brief Information about each /proc/softmac entry for SoftMAC parameters
+ */
+typedef struct {
+  /**
+   * @brief Name that will appear in proc directory
+   */
+  const char* name;
+  /**
+   * @brief Read/write permissions, e.g. "0644" means read/write
+   * for owner (root), and read-only for group and other users.
+   */
+  mode_t mode;
+  /**
+   * @brief A unique ID passed to the read and write handler functions
+   * when data is written to or read from the particular entry.
+   */
+  int id;
+} SOFTMAC_PROC_ENTRY;
+
+/* proc entry ID's */
+enum {
+    SOFTMAC_PROC_CREATE_INSTANCE,
+    SOFTMAC_PROC_DELETE_INSTANCE,
+};
+
+static const SOFTMAC_PROC_ENTRY softmac_proc_entries[] = {
+    {
+	"create_instance",
+	0200,
+	SOFTMAC_PROC_CREATE_INSTANCE
+    },
+    {
+	"delete_instance",
+	0200,
+	SOFTMAC_PROC_DELETE_INSTANCE
+    },
+
+    /* the terminator */
+    {
+	0,
+	0,
+	-1
+    }
+};
+
+/* data passed to the softmac_procfs_read function */
+typedef struct {
+
+  char name[CU_SOFTMAC_NAME_SIZE];
+  int id;
+
+} SOFTMAC_PROC_DATA;
+
+
+static struct proc_dir_entry *softmac_procfs_root;
+static struct proc_dir_entry *softmac_procfs_layers;
+static struct proc_dir_entry *softmac_procfs_insts;
+
+static int softmac_procfs_read(char *page, char **start, off_t off, 
+			       int count, int *eof, void *data);
+static int softmac_procfs_write(struct file *file, const char __user *buffer,
+				unsigned long count, void *data);
+static void
+softmac_procfs_create(void)
+{
+    int i;
+    struct proc_dir_entry *ent;
+    SOFTMAC_PROC_DATA *data;
+
+    /* add /proc/softmac/ directory */
+    softmac_procfs_root = proc_mkdir("softmac", 0);
+    softmac_procfs_root->owner = THIS_MODULE;
+
+    /* add /proc/softmac/layers/ directory */
+    softmac_procfs_layers = proc_mkdir("layers", softmac_procfs_root);
+    softmac_procfs_layers->owner = THIS_MODULE;
+
+    /* add /proc/softmac/insts/ directory */
+    softmac_procfs_insts = proc_mkdir("insts", softmac_procfs_root);
+    softmac_procfs_insts->owner = THIS_MODULE;
+    
+    /* add /proc/softmac entries */
+    /* stop with null or empty string for name */
+    for (i=0; softmac_proc_entries[i].name && softmac_proc_entries[i].name[0]; i++) {
+
+	/* make a new entry */
+	ent = create_proc_entry(softmac_proc_entries[i].name,
+				softmac_proc_entries[i].mode,
+				softmac_procfs_root);
+	ent->owner = THIS_MODULE;
+	ent->read_proc = softmac_procfs_read;
+	ent->write_proc = softmac_procfs_write;
+
+	data = kmalloc(sizeof(SOFTMAC_PROC_DATA), GFP_ATOMIC);
+	data->id = softmac_proc_entries[i].id;
+	strncpy(data->name, softmac_proc_entries[i].name, CU_SOFTMAC_NAME_SIZE);
+	ent->data = data;
+    }
+}
+
+static void
+softmac_procfs_destroy(void)
+{
+    int i;
+
+    /* remove /proc/softmac/class/ directory */
+    remove_proc_entry("class", softmac_procfs_root);
+
+    /* remove /proc/softmac/inst/ directory */
+    remove_proc_entry("inst", softmac_procfs_root);
+
+    /* remove /proc/softmac/ entries */
+    for (i=0; softmac_proc_entries[i].name && softmac_proc_entries[i].name[0]; i++)
+	remove_proc_entry(softmac_proc_entries[i].name, softmac_procfs_root);
+
+    /* remove /proc/softmac/ directory */
+    remove_proc_entry("softmac", 0);
+
+}
+
+/* functions for /proc/softmac */
+
+static int
+softmac_procfs_read(char *page, char **start, off_t off, 
+		    int count, int *eof, void *data)
+{
+    return 0;
+}
+
+static int
+softmac_procfs_write(struct file *file, const char __user *buffer,
+		     unsigned long count, void *data)
+{
+    int result = 0;
+    char kdata[CU_SOFTMAC_NAME_SIZE];
+    SOFTMAC_PROC_DATA *procdata = data;
+    void *inst;
+
+    if (count >= CU_SOFTMAC_NAME_SIZE)
+	result = CU_SOFTMAC_NAME_SIZE-1;
+    else 
+	result = count-1;
+
+    copy_from_user(kdata, buffer, result);
+    kdata[result] = 0;
+    
+    switch (procdata->id) {
+
+    case SOFTMAC_PROC_CREATE_INSTANCE:
+	printk("proc write: %s %d", kdata, result);
+	inst = cu_softmac_layer_new_instance(kdata);
+	break;
+
+    case SOFTMAC_PROC_DELETE_INSTANCE:
+	inst = cu_softmac_macinfo_get_by_name(kdata);
+	if (inst) {
+	    /* remove from SoftMAC */
+	    cu_softmac_macinfo_unregister(inst);
+	    /* free the reference just aquired */
+	    cu_softmac_macinfo_free(inst);
+	    /* now issue the "real" free to the layer */
+	    cu_softmac_layer_free_instance(inst);
+	    break;
+	}
+	inst = cu_softmac_phyinfo_get_by_name(kdata);
+	if (inst) {
+	    /* remove from SoftMAC */
+	    cu_softmac_phyinfo_unregister(inst);
+	    /* free the reference just aquired */
+	    cu_softmac_phyinfo_free(inst);
+	    /* now issue the "real" free to the layer */
+	    cu_softmac_layer_free_instance(inst);
+	    break;
+	}
+	break;
+
+    default:
+	break;
+    }
+
+    return count;
+}
+
+/* functions for /proc/softmac/layers */
+
+static int
+softmac_procfs_layer_read(char *page, char **start, off_t off, 
+			  int count, int *eof, void *data)
+{
+    return 0;
+}
+
+static int
+softmac_procfs_layer_write(struct file *file, const char __user *buffer,
+			  unsigned long count, void *data)
+{
+    return count;
+}
+
+static void
+softmac_procfs_layer_add(CU_SOFTMAC_LAYER_INFO *info)
+{
+    struct proc_dir_entry* ent;
+    ent = create_proc_entry(info->name, 0644, softmac_procfs_layers);
+    ent->owner = THIS_MODULE;
+    ent->data = info;
+    ent->read_proc = softmac_procfs_layer_read;
+    ent->write_proc = softmac_procfs_layer_write;
+}
+
+static void
+softmac_procfs_layer_del(CU_SOFTMAC_LAYER_INFO *info)
+{
+    remove_proc_entry(info->name, softmac_procfs_layers);
+}
+
+/* functions for /proc/softmac/insts */
+
+static int
+softmac_procfs_inst_read(char *page, char **start, off_t off, 
+			 int count, int *eof, void *data)
+{
+    return 0;
+}
+
+static int
+softmac_procfs_inst_write(struct file *file, const char __user *buffer,
+			  unsigned long count, void *data)
+{
+    return count;
+}
+
+static void
+softmac_procfs_inst_add(void *inst)
+{
+    CU_SOFTMAC_MACLAYER_INFO *macinfo = inst;
+
+    struct proc_dir_entry* ent;
+    ent = create_proc_entry(macinfo->name, 0644, softmac_procfs_insts);
+    ent->owner = THIS_MODULE;
+    ent->data = inst;
+    ent->read_proc = softmac_procfs_inst_read;
+    ent->write_proc = softmac_procfs_inst_write;
+}
+
+static void
+softmac_procfs_inst_del(void *inst)
+{
+    CU_SOFTMAC_MACLAYER_INFO *macinfo = inst;
+    remove_proc_entry(macinfo->name, softmac_procfs_insts);
+}
+
+/*
+** 
 ** Implementations of our "do nothing" functions to avoid null checks
 **
 */
@@ -241,7 +500,7 @@ cu_softmac_mac_set_unload_notify_func_dummy(void *mydata,
 
 /*
 ** 
-** SoftMAC Core API
+** SoftMAC Core API - public interface
 **
 */
 
@@ -268,19 +527,11 @@ cu_softmac_layer_free_instance(void *inst)
 {
     printk("%s\n", __func__);
 
-    struct hlist_head *head;
-    struct hlist_node *p;
-    /* XXX ugly! */
-    const char *name = ((CU_SOFTMAC_MACLAYER_INFO *)(inst))->layer->name;
+    CU_SOFTMAC_LAYER_INFO *l;
 
-    head = softmac_layer_hash(name);
-    hlist_for_each(p, head) {
-	CU_SOFTMAC_LAYER_INFO *l = hlist_entry(p, CU_SOFTMAC_LAYER_INFO, name_hlist);
-	if (!strncmp(l->name, name, CU_SOFTMAC_NAME_SIZE)) {
-	    l->cu_softmac_layer_free_instance(l->layer_private, inst);
-	    return;
-	}
-    }
+    /* XXX ugly! */
+    l = ((CU_SOFTMAC_MACLAYER_INFO *)(inst))->layer;
+    l->cu_softmac_layer_free_instance(l->layer_private, inst);
 }
 
 
@@ -300,7 +551,8 @@ cu_softmac_layer_register(CU_SOFTMAC_LAYER_INFO *info)
 	}
     }
     
-    /* add it to the list */
+    /* add it to /proc/softmac/layers and to internal list */
+    softmac_procfs_layer_add(info);
     hlist_add_head(&info->name_hlist, head);
     printk("%s registered layer %s\n", __func__, info->name);
 }
@@ -316,6 +568,9 @@ cu_softmac_layer_unregister(CU_SOFTMAC_LAYER_INFO *info)
 	CU_SOFTMAC_LAYER_INFO *l = hlist_entry(p, CU_SOFTMAC_LAYER_INFO, name_hlist);
 	if (l == info) {
 	    printk("%s unregistered layer %s\n", __func__, info->name);
+	    /* remove from procfs */
+	    softmac_procfs_layer_del(info);
+	    /* remove from internal list */
 	    hlist_del(&l->name_hlist);
 	    return;
 	}
@@ -386,8 +641,9 @@ cu_softmac_phyinfo_register(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
     
     /* increment reference count */
     phyinfo = cu_softmac_phyinfo_get(phyinfo);
-
-    /* add it to the list */
+    /* add to /proc/softmac/insts */
+    softmac_procfs_inst_add(phyinfo);
+    /* add to the phyinfo list */
     hlist_add_head(&phyinfo->name_hlist, head);
 
     printk("%s registered %s\n", __func__, phyinfo->name);
@@ -403,7 +659,13 @@ cu_softmac_phyinfo_unregister(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
     hlist_for_each(p, head) {
 	CU_SOFTMAC_PHYLAYER_INFO *m = hlist_entry(p, CU_SOFTMAC_PHYLAYER_INFO, name_hlist);
 	if (m == phyinfo) {
+	    /* remove from /proc/softmac/insts */
+	    softmac_procfs_inst_del(m);
+	    /* remove from internal pyinfo list */
 	    hlist_del(&m->name_hlist);
+	    /* decrement reference count */
+	    cu_softmac_phyinfo_free(m);
+	    
 	    printk("%s unregistered %s\n", __func__, phyinfo->name);
 	    return;
 	}
@@ -418,7 +680,6 @@ cu_softmac_phyinfo_get(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
     atomic_inc(&phyinfo->refcnt);
     return phyinfo;
 }
-
 
 CU_SOFTMAC_PHYLAYER_INFO *
 cu_softmac_phyinfo_get_by_name(const char *name)
@@ -506,9 +767,11 @@ cu_softmac_macinfo_register(CU_SOFTMAC_MACLAYER_INFO* macinfo)
     
     /* increment reference count */
     macinfo = cu_softmac_macinfo_get(macinfo);
-
-    /* add it to the list */
+    /* add to /proc/softmac/insts */
+    softmac_procfs_inst_add(macinfo);
+    /* add to the macinfo list */
     hlist_add_head(&macinfo->name_hlist, head);
+
     printk("%s registered %s\n", __func__, macinfo->name);
 }
 
@@ -522,8 +785,14 @@ cu_softmac_macinfo_unregister(CU_SOFTMAC_MACLAYER_INFO* macinfo)
     hlist_for_each(p, head) {
 	CU_SOFTMAC_MACLAYER_INFO *m = hlist_entry(p, CU_SOFTMAC_MACLAYER_INFO, name_hlist);
 	if (m == macinfo) {
-	    printk("%s unregistered %s\n", __func__, macinfo->name);
+	    /* remove from /proc/softmac/insts */
+	    softmac_procfs_inst_del(m);
+	    /* remove from internal list */
 	    hlist_del(&m->name_hlist);
+	    /* decrement reference count */
+	    cu_softmac_macinfo_free(m);
+
+	    printk("%s unregistered %s\n", __func__, macinfo->name);
 	    return;
 	}
     }
@@ -532,6 +801,8 @@ cu_softmac_macinfo_unregister(CU_SOFTMAC_MACLAYER_INFO* macinfo)
 CU_SOFTMAC_MACLAYER_INFO *
 cu_softmac_macinfo_get(CU_SOFTMAC_MACLAYER_INFO *macinfo)
 {
+    printk("%s\n", __func__);
+
     atomic_inc(&macinfo->refcnt);
     return macinfo;
 }
@@ -558,11 +829,18 @@ cu_softmac_macinfo_get_by_name(const char *name)
     return ret;
 }
 
+/*
+**
+**
+**
+*/
+
 static int __init softmac_core_init(void)
 {
     printk("%s\n", __func__);
 
     softmac_lists_init();
+    softmac_procfs_create();
 
     return 0;
 }
@@ -570,6 +848,9 @@ static int __init softmac_core_init(void)
 static void __exit softmac_core_exit(void)
 {
     printk("%s\n", __func__);
+
+    //softmac_lists_cleanup();
+    softmac_procfs_destroy();
 }
 
 module_init(softmac_core_init);
