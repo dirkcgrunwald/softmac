@@ -1,7 +1,8 @@
 obj-m += softmac_nullmac.o
 
 ifndef KERNELSOURCE
-$(warning WARNING: KERNELSOURCE undefined, using ${KERNELSOURCE})
+$(warning WARNING: KERNELSOURCE undefined, using /usr/src/linux)
+KERNELSOURCE=/usr/src/linux
 endif
 
 all: softmac_nullmac
