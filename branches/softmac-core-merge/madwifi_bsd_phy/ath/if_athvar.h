@@ -358,7 +358,8 @@ struct ath_softc {
   struct tq_struct       sc_cu_softmac_worktq;
   u_int32_t sc_cu_softmac_txlatency;
   u_int32_t sc_cu_softmac_options;
-  CU_SOFTMAC_MACLAYER_INFO sc_cu_softmac_mac;
+  CU_SOFTMAC_MACLAYER_INFO *sc_cu_softmac_mac;
+  CU_SOFTMAC_PHYLAYER_INFO *sc_cu_softmac_phy;
   /*
    * Sometimes, e.g. when we are detaching a particular MAC layer,
    * we want to make sure that we've got exclusive access to the

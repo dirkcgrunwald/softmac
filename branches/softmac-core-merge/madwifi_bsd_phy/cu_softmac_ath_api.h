@@ -25,26 +25,25 @@
 #ifndef _CU_SOFTMAC_ATH_API_H
 #define _CU_SOFTMAC_ATH_API_H
 
+#include "../core/cu_softmac_api.h"
+
 /*
  * The Atheros driver doesn't really offer enough direct control
  * of the PHY layer to permit a MAC layer to do its own PHY CCA,
  * backoff and such. So, we let the MAC layer control some of
  * the CSMA properties performed by the underlying system.
- * XXX move these to the atheros-specific header file!
- *
  */
 
 /*
  * Get phy layer information for the specified atheros net device
  */
-void cu_softmac_ath_get_phyinfo(struct net_device* dev,CU_SOFTMAC_PHYLAYER_INFO* phyinfo);
+void cu_softmac_ath_get_phyinfo(struct net_device* dev, CU_SOFTMAC_PHYLAYER_INFO* phyinfo);
 
-void cu_softmac_ath_set_cca_nf(CU_SOFTMAC_PHY_HANDLE nfh,
-			   u_int32_t ccanf);
-void cu_softmac_ath_set_cw(CU_SOFTMAC_PHY_HANDLE nfh,int cwmin,int cwmax);
-u_int32_t cu_softmac_ath_get_slottime(CU_SOFTMAC_PHY_HANDLE nfh);
-void cu_softmac_ath_set_slottime(CU_SOFTMAC_PHY_HANDLE nfh,u_int32_t slottime);
-void cu_softmac_ath_set_options(CU_SOFTMAC_PHY_HANDLE nfh,u_int32_t options);
+void cu_softmac_ath_set_cca_nf(void* mydata, u_int32_t ccanf);
+void cu_softmac_ath_set_cw(void* mydata, int cwmin, int cwmax);
+u_int32_t cu_softmac_ath_get_slottime(void* mydata);
+void cu_softmac_ath_set_slottime(void* mydata, u_int32_t slottime);
+void cu_softmac_ath_set_options(void* mydata, u_int32_t options);
 
 /*
  * Per-packet phy layer directives are set in the skbuff, as
@@ -56,24 +55,21 @@ void cu_softmac_ath_set_options(CU_SOFTMAC_PHY_HANDLE nfh,u_int32_t options);
  * could be applicable for multiple PHY layers.
  *
  */
-void cu_softmac_ath_set_default_phy_props(CU_SOFTMAC_PHY_HANDLE nfh,
-					  struct sk_buff* packet);
+void cu_softmac_ath_set_default_phy_props(void* mydata, struct sk_buff* packet);
 
-void cu_softmac_ath_set_tx_bitrate(CU_SOFTMAC_PHY_HANDLE nfh,
-				   struct sk_buff* packet,unsigned char rate);
+void cu_softmac_ath_set_tx_bitrate(void* mydata,
+				   struct sk_buff* packet,
+				   unsigned char rate);
 
-unsigned char cu_softmac_ath_get_rx_bitrate(CU_SOFTMAC_PHY_HANDLE,
-					    struct sk_buff* packet);
+unsigned char cu_softmac_ath_get_rx_bitrate(void* mydata, struct sk_buff* packet);
 
-void cu_softmac_ath_require_txdone_interrupt(CU_SOFTMAC_PHY_HANDLE nfh,
+void cu_softmac_ath_require_txdone_interrupt(void* mydata, 
 					     struct sk_buff* packet,
 					     int require_interrupt);
 
-u_int64_t cu_softmac_ath_get_rx_time(CU_SOFTMAC_PHY_HANDLE nfh,
-				     struct sk_buff* packet);
+u_int64_t cu_softmac_ath_get_rx_time(void* mydata, struct sk_buff* packet);
 
-int cu_softmac_ath_has_rx_crc_error(CU_SOFTMAC_PHY_HANDLE nfh,
-				    struct sk_buff* packet);
+int cu_softmac_ath_has_rx_crc_error(void* mydata, struct sk_buff* packet);
 
 
 enum {
