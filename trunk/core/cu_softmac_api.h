@@ -145,6 +145,9 @@ struct CU_SOFTMAC_LAYER_INFO_t;
 struct CU_SOFTMAC_MACLAYER_INFO_t;
 struct CU_SOFTMAC_PHYLAYER_INFO_t;
 
+typedef void* CU_SOFTMAC_PHY_HANDLE;
+typedef void* CU_SOFTMAC_MAC_HANDLE;
+
 /**
  * @brief Maximum size of a MAC,PHY,LAYER name in SoftMAC
  */
@@ -198,7 +201,7 @@ typedef struct CU_SOFTMAC_PHYLAYER_INFO_t {
     /**
      * @brief Attach a MAC layer to the PHY layer
      */
-    int (*cu_softmac_phy_attach_mac)(void *, struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
+    int (*cu_softmac_phy_attach)(void *, struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo);
 
     /**
      * @brief Detach a MAC layer from the PHY layer
@@ -207,7 +210,7 @@ typedef struct CU_SOFTMAC_PHYLAYER_INFO_t {
      * of this call are such that *after* it returns the SoftMAC PHY won't
      * make any new calls into the MAC layer.
      */
-    void (*cu_softmac_phy_detach_mac)(void*, void* mypriv);
+    void (*cu_softmac_phy_detach)(void*);
     /**
      * @brief Get current time
      *
@@ -344,19 +347,14 @@ typedef struct CU_SOFTMAC_MACLAYER_INFO_t {
     int (*cu_softmac_mac_work)(void*,int intop);
 
     /**
-     * @brief Notify the MAC layer that it is being removed from the PHY.
-     */   
-    int (*cu_softmac_mac_detach)(void*,int intop);
-
-    /**
      * @brief Tell the MAC layer to attach to the specified PHY layer.
      */
-    int (*cu_softmac_mac_attach_to_phy)(void*,CU_SOFTMAC_PHYLAYER_INFO*);
+    int (*cu_softmac_mac_attach)(void*,CU_SOFTMAC_PHYLAYER_INFO*);
 
     /**
      * @brief Tell the MAC layer to detach from the specified PHY layer.
      */
-    int (*cu_softmac_mac_detach_from_phy)(void*);
+    int (*cu_softmac_mac_detach)(void*);
 
     /**
      * @brief
@@ -404,7 +402,6 @@ enum {
     CU_SOFTMAC_MAC_TX_OK = 0,
     CU_SOFTMAC_MAC_TX_FAIL = -1,
 };
-
 
 /**
  **

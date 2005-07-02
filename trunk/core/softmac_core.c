@@ -203,18 +203,18 @@ softmac_procfs_destroy(void)
     int i;
 
     /* remove /proc/softmac/class/ directory */
-    remove_proc_entry("class", softmac_procfs_root);
+    remove_proc_entry("layers", softmac_procfs_root);
 
     /* remove /proc/softmac/inst/ directory */
-    remove_proc_entry("inst", softmac_procfs_root);
+    remove_proc_entry("insts", softmac_procfs_root);
 
     /* remove /proc/softmac/ entries */
-    for (i=0; softmac_proc_entries[i].name && softmac_proc_entries[i].name[0]; i++)
+    for (i=0; softmac_proc_entries[i].name && softmac_proc_entries[i].name[0]; i++) {
 	remove_proc_entry(softmac_proc_entries[i].name, softmac_procfs_root);
+    }
 
     /* remove /proc/softmac/ directory */
     remove_proc_entry("softmac", 0);
-
 }
 
 /* functions for /proc/softmac */
@@ -246,29 +246,26 @@ softmac_procfs_write(struct file *file, const char __user *buffer,
     switch (procdata->id) {
 
     case SOFTMAC_PROC_CREATE_INSTANCE:
-	printk("proc write: %s %d", kdata, result);
 	inst = cu_softmac_layer_new_instance(kdata);
 	break;
 
     case SOFTMAC_PROC_DELETE_INSTANCE:
 	inst = cu_softmac_macinfo_get_by_name(kdata);
 	if (inst) {
-	    /* remove from SoftMAC */
-	    cu_softmac_macinfo_unregister(inst);
+	    CU_SOFTMAC_MACLAYER_INFO *macinfo = inst;
 	    /* free the reference just aquired */
-	    cu_softmac_macinfo_free(inst);
-	    /* now issue the "real" free to the layer */
-	    cu_softmac_layer_free_instance(inst);
+	    cu_softmac_macinfo_free(macinfo);
+	    /* remove from SoftMAC */
+	    cu_softmac_macinfo_unregister(macinfo);
 	    break;
 	}
 	inst = cu_softmac_phyinfo_get_by_name(kdata);
 	if (inst) {
-	    /* remove from SoftMAC */
-	    cu_softmac_phyinfo_unregister(inst);
+	    CU_SOFTMAC_PHYLAYER_INFO *phyinfo = inst;
 	    /* free the reference just aquired */
-	    cu_softmac_phyinfo_free(inst);
-	    /* now issue the "real" free to the layer */
-	    cu_softmac_layer_free_instance(inst);
+	    cu_softmac_phyinfo_free(phyinfo);
+	    /* remove from SoftMAC */
+	    cu_softmac_phyinfo_unregister(phyinfo);
 	    break;
 	}
 	break;
@@ -356,13 +353,13 @@ softmac_procfs_inst_del(void *inst)
 */
 
 int
-cu_softmac_phy_attach_mac_dummy(void *mydata, struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo) 
+cu_softmac_phy_attach_dummy(void *mydata, struct CU_SOFTMAC_MACLAYER_INFO_t* macinfo) 
 {
   return -1;
 }
 
 void
-cu_softmac_phy_detach_mac_dummy(void *mydata, void *mypriv) 
+cu_softmac_phy_detach_dummy(void *mydata) 
 {
 }
 
@@ -442,12 +439,6 @@ cu_softmac_phy_get_txlatency_dummy(void *mydata)
 }
 
 static int
-cu_softmac_mac_detach_dummy(void *mydata, int intop)
-{
-    return 0;
-}
-
-static int
 cu_softmac_mac_work_dummy(void *mydata, int intop)
 {
     return 0;
@@ -472,13 +463,13 @@ cu_softmac_mac_packet_tx_dummy(void *mydata, struct sk_buff* packet, int intop)
 }
 
 static int
-cu_softmac_mac_attach_to_phy_dummy(void *mydata, CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
+cu_softmac_mac_attach_dummy(void *mydata, CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 {
-    return 0;
+    return -1;
 }
 
 static int
-cu_softmac_mac_detach_from_phy_dummy(void *mydata)
+cu_softmac_mac_detach_dummy(void *mydata)
 {
     return 0;
 }
@@ -508,7 +499,7 @@ cu_softmac_mac_set_unload_notify_func_dummy(void *mydata,
 void *
 cu_softmac_layer_new_instance(const char *name)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     struct hlist_head *head;
     struct hlist_node *p;
@@ -525,7 +516,7 @@ cu_softmac_layer_new_instance(const char *name)
 void
 cu_softmac_layer_free_instance(void *inst)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     CU_SOFTMAC_LAYER_INFO *l;
 
@@ -580,7 +571,7 @@ cu_softmac_layer_unregister(CU_SOFTMAC_LAYER_INFO *info)
 CU_SOFTMAC_PHYLAYER_INFO *
 cu_softmac_phyinfo_alloc(void)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     CU_SOFTMAC_PHYLAYER_INFO *phyinfo;
 
@@ -595,10 +586,12 @@ cu_softmac_phyinfo_alloc(void)
 void
 cu_softmac_phyinfo_free(CU_SOFTMAC_PHYLAYER_INFO *phyinfo)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     if (atomic_dec_and_test(&phyinfo->refcnt)) {
-	printk("%s freed\n", __func__);
+	//printk("%s freed\n", __func__);
+	if (phyinfo->phy_private)
+	    cu_softmac_layer_free_instance(phyinfo);
 	kfree(phyinfo);
     }
 }
@@ -606,11 +599,11 @@ cu_softmac_phyinfo_free(CU_SOFTMAC_PHYLAYER_INFO *phyinfo)
 void
 cu_softmac_phyinfo_init(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     memset(phyinfo, 0, sizeof(CU_SOFTMAC_PHYLAYER_INFO));
-    phyinfo->cu_softmac_phy_attach_mac = cu_softmac_phy_attach_mac_dummy;
-    phyinfo->cu_softmac_phy_detach_mac = cu_softmac_phy_detach_mac_dummy;
+    phyinfo->cu_softmac_phy_attach = cu_softmac_phy_attach_dummy;
+    phyinfo->cu_softmac_phy_detach = cu_softmac_phy_detach_dummy;
     phyinfo->cu_softmac_phy_get_time = cu_softmac_phy_get_time_dummy;
     phyinfo->cu_softmac_phy_set_time = cu_softmac_phy_set_time_dummy;
     phyinfo->cu_softmac_phy_schedule_work_asap = cu_softmac_phy_schedule_work_asap_dummy;
@@ -675,7 +668,7 @@ cu_softmac_phyinfo_unregister(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 CU_SOFTMAC_PHYLAYER_INFO *
 cu_softmac_phyinfo_get(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 {   
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     atomic_inc(&phyinfo->refcnt);
     return phyinfo;
@@ -684,7 +677,7 @@ cu_softmac_phyinfo_get(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 CU_SOFTMAC_PHYLAYER_INFO *
 cu_softmac_phyinfo_get_by_name(const char *name)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     struct hlist_head *head;
     struct hlist_node *p;
@@ -706,7 +699,7 @@ cu_softmac_phyinfo_get_by_name(const char *name)
 CU_SOFTMAC_MACLAYER_INFO *
 cu_softmac_macinfo_alloc(void)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     CU_SOFTMAC_MACLAYER_INFO *macinfo;
 
@@ -721,10 +714,12 @@ cu_softmac_macinfo_alloc(void)
 void
 cu_softmac_macinfo_free(CU_SOFTMAC_MACLAYER_INFO *macinfo)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     if (atomic_dec_and_test(&macinfo->refcnt)) {
-	printk("%s freed\n", __func__);
+	//printk("%s freed\n", __func__);
+	if (macinfo->mac_private)
+	    cu_softmac_layer_free_instance(macinfo);
 	kfree(macinfo);
     }
 }
@@ -732,16 +727,15 @@ cu_softmac_macinfo_free(CU_SOFTMAC_MACLAYER_INFO *macinfo)
 void
 cu_softmac_macinfo_init(CU_SOFTMAC_MACLAYER_INFO* macinfo)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     memset(macinfo, 0, sizeof(CU_SOFTMAC_MACLAYER_INFO));
     macinfo->cu_softmac_mac_packet_tx = cu_softmac_mac_packet_tx_dummy;
     macinfo->cu_softmac_mac_packet_tx_done = cu_softmac_mac_packet_tx_done_dummy;
     macinfo->cu_softmac_mac_packet_rx = cu_softmac_mac_packet_rx_dummy;
     macinfo->cu_softmac_mac_work = cu_softmac_mac_work_dummy;
+    macinfo->cu_softmac_mac_attach = cu_softmac_mac_attach_dummy;
     macinfo->cu_softmac_mac_detach = cu_softmac_mac_detach_dummy;
-    macinfo->cu_softmac_mac_attach_to_phy = cu_softmac_mac_attach_to_phy_dummy;
-    macinfo->cu_softmac_mac_detach_from_phy = cu_softmac_mac_detach_from_phy_dummy;
     macinfo->cu_softmac_mac_set_rx_func = cu_softmac_mac_set_rx_func_dummy;
     macinfo->cu_softmac_mac_set_unload_notify_func = cu_softmac_mac_set_unload_notify_func_dummy;
     macinfo->mac_private = 0;
@@ -750,7 +744,7 @@ cu_softmac_macinfo_init(CU_SOFTMAC_MACLAYER_INFO* macinfo)
 void 
 cu_softmac_macinfo_register(CU_SOFTMAC_MACLAYER_INFO* macinfo)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     struct hlist_head *head;
     struct hlist_node *p;
@@ -801,7 +795,7 @@ cu_softmac_macinfo_unregister(CU_SOFTMAC_MACLAYER_INFO* macinfo)
 CU_SOFTMAC_MACLAYER_INFO *
 cu_softmac_macinfo_get(CU_SOFTMAC_MACLAYER_INFO *macinfo)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     atomic_inc(&macinfo->refcnt);
     return macinfo;
@@ -810,7 +804,7 @@ cu_softmac_macinfo_get(CU_SOFTMAC_MACLAYER_INFO *macinfo)
 CU_SOFTMAC_MACLAYER_INFO *
 cu_softmac_macinfo_get_by_name(const char *name)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     struct hlist_head *head;
     struct hlist_node *p;
