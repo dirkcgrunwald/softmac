@@ -83,25 +83,24 @@ typedef struct {
 
 /**
  * @brief Create a CheesyMAC instance.
- * This will fill *macinfo in with the appropriate cheesymac instance
- * information.
+ * This will fill a macinfo in with the appropriate cheesymac instance
+ * information and return a pointer to it.
  */
-int
-cu_softmac_cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* macinfo,
-				     CU_SOFTMAC_CHEESYMAC_PARAMETERS* params);
+void *
+cu_softmac_cheesymac_new_instance(void *layerpriv);
 
 /**
- * @brief Destroy a cheesymac instance.
+ * @brief Dereference a macinfo pointer and deallocate the instance if the
+ * reference count becomes zero.
  */
-int
-cu_softmac_cheesymac_destroy_instance(void* macpriv);
+void
+cu_softmac_cheesymac_free_instance(void *layerpriv, void* macinfo);
 
 /**
- * @brief Get MAC layer info for CheesyMAC
+ * @brief Initialize 'macpriv' with default CheesyMAC function pointers
  */
-int
-cu_softmac_cheesymac_get_macinfo(void* macpriv,
-				 CU_SOFTMAC_MACLAYER_INFO* macinfo);
+void 
+cu_softmac_cheesymac_set_macinfo_functions(CU_SOFTMAC_MACLAYER_INFO* macpriv);
 
 /**
  * @brief Get the default parameters used to initialize new CheesyMAC instances
