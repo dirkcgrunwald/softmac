@@ -1647,7 +1647,9 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
 		inst->macs[i]->name[result-1] = '\0';
 		
 	      	// Create and fetch a new instance
-	      	//(inst->macs[i])->mac = cu_softmac_layer_new_instance(inst->macs[i])->name);  
+	      	(inst->macs[i])->mac = cu_softmac_layer_new_instance(inst->macs[i])->name);  
+		(inst->macs[i]).mxrxfunc = ((inst->macs[i])->mac).cu_softmac_mac_packet_rx;
+		//(inst->macs[i])->mytxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_tx;
 
 		inst->runningmacs++;
 	
