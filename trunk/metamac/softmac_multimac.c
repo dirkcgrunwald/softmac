@@ -702,7 +702,7 @@ metamac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
      */
 
     char *name = kmalloc(10, GFP_KERNEL);
-    sprintf(name, "cheesymac");
+    sprintf(name, "mac1");
              
     int i;
     for(i=0; i<inst->runningmacs; i++)
@@ -715,8 +715,12 @@ metamac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
     }
      
     int txresult = -1;
-    if(inst->macs[i])
+    if(inst->macs[i]!=NULL && inst->macs[i]->mytxfunc!=NULL)
+    {	
 	txresult = (inst->macs[i]->mytxfunc)(inst,packet,0);
+    }else
+    	printk("Autsch!\n");
+
 //txresult = cu_softmac_mac_packet_tx_cheesymac(inst,packet,0);
 	
     if (CU_SOFTMAC_MAC_TX_OK != txresult)
@@ -1647,11 +1651,22 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
 		inst->macs[i]->name[result-1] = '\0';
 		
 	      	// Create and fetch a new instance
-	      	(inst->macs[i])->mac = cu_softmac_layer_new_instance((inst->macs[i])->name);  
-		(inst->macs[i])->myrxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_rx;
-		//(inst->macs[i])->mytxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_tx;
+	      	void *p  = cu_softmac_layer_new_instance((inst->macs[i])->name);  
+		
+		printk("a\n");
+		if(p!=NULL)
+		{
+			(inst->macs[i])->mac = p;
+			printk("c\n");
+			(inst->macs[i])->myrxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_rx;
+			(inst->macs[i])->mytxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_tx;
+			printk("d\n");
+			inst->runningmacs++;
 
-		inst->runningmacs++;
+		}else{
+			printk("Didn't find that!\n");
+			inst->macs[i]=NULL;
+		}
 	
 		success=1;
 		break;	
