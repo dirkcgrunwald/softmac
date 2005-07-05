@@ -265,7 +265,7 @@ typedef struct CU_SOFTMAC_MACLAYER_INFO_t {
   /**
    * @brief Called when an ethernet-encapsulated packet is ready to transmit.
    */
-  int (*cu_softmac_mac_packet_tx)(void*,struct sk_buff* thepacket,int intop);
+  int (*cu_softmac_mac_packet_tx)(void*,struct sk_buff* thepacket, int intop);
 
   /**
    * @brief Called when transmission of a packet is complete.

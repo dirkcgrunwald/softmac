@@ -42,7 +42,7 @@
 #include "cu_softmac_api.h"
 #include "cu_softmac_ath_api.h"
 #include "softmac_netif.h"
-#include "softmac_cheesymac.h"
+#include "softmac_multimac.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Michael Neufeld, Christian Doerr");
@@ -75,8 +75,11 @@ typedef struct MACS_t {
 	char *name;
 			
 	rwlock_t mac_busy;
-	
-	CU_SOFTMAC_MACLAYER_INFO mac;
+  
+  	int (*mytxfunc)(void*,struct sk_buff* thepacket, int intop);
+	int (*myrxfunc)(void*,struct sk_buff* thepacket, int intop);
+
+	CU_SOFTMAC_MACLAYER_INFO* mac;
 
 } MAC_INSTANCE;
 
@@ -584,7 +587,7 @@ static CU_SOFTMAC_NETIF_HANDLE cheesymac_softmac_netif = 0;
 /*
  * Default root directory for cheesymac procfs entries
  */
-static char *cheesymac_procfsroot = "metamac";
+static char *cheesymac_procfsroot = "multimac";
 static struct proc_dir_entry* cheesymac_procfsroot_handle = 0;
 
 /*
@@ -624,10 +627,10 @@ module_param(cheesymac_attach_on_load, int, S_IRUSR | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(cheesymac_attach_on_load,"Set to non-zero to have the cheesymac attach itself to the softmac upon loading");
 
 static int 
-metamac_set_rx_func_cheesymac(char *name, 
-				     void* mydata,
-				     CU_SOFTMAC_MAC_RX_FUNC rxfunc,
-				     void* rxpriv) {
+metamac_set_rx_func(char *name,
+			void* mydata,
+			CU_SOFTMAC_MAC_RX_FUNC rxfunc,
+			  void* rxpriv) {
   int result = -1;
   CHEESYMAC_INSTANCE* inst = mydata;
   if (inst) {
@@ -636,23 +639,96 @@ metamac_set_rx_func_cheesymac(char *name,
     int i;
     for(i=0; i<inst->runningmacs; i++)
     {
-    	if(strncmp(name, inst->macs[i]->name, 10)==0)
+        if(inst->macs[i])
 	{
-		//inst->myrxfunc = rxfunc;
-		//inst->myrxfunc_priv = rxpriv;
-		
-		//inst->macs[i]->myrxfunc = rxfunc;
-		//inst->macs[i]->myrxfunc_priv = rxpriv;
-		
-		result=0;
-		break;
-	}
+		if(strncmp(name, inst->macs[i]->name, sizeof(name))==0)
+		{
+			if(rxfunc)
+				inst->myrxfunc = rxfunc;
+			result=0;
+			break;
+		}
+    	}
     }
-    write_unlock(&(inst->mac_busy));  
+    write_unlock(&(inst->mac_busy));
   }
 
   return result;
 }
+
+
+static int 
+metamac_set_tx_func(char *name,
+			 void* mydata,
+			  CU_SOFTMAC_MAC_RX_FUNC txfunc,
+			  void* txpriv) {
+  int result = -1;
+  CHEESYMAC_INSTANCE* inst = mydata;
+  if (inst) {
+    write_lock(&(inst->mac_busy));
+    
+    int i;
+    for(i=0; i<inst->runningmacs; i++)
+    {
+    	if(inst->macs[i])
+	{
+		if(strncmp(name, inst->macs[i]->name, sizeof(name))==0)
+		{
+			//if(txfunc)
+			//	inst->mytxfunc = txfunc;
+			result=0;
+			break;
+		}
+    	}
+    }
+    write_unlock(&(inst->mac_busy));
+  } 
+
+  return result;
+}
+
+
+static int
+metamac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
+			 struct sk_buff* packet) {
+  CHEESYMAC_INSTANCE* inst = priv;
+ 
+  if (inst) {
+    /*
+     * Call the cheesymac tx function. The "intop" indicator
+     * is always zero for the particular netif implementation
+     * we're using -- in Linux the packet transmission is
+     * instigated by a softirq in the bottom half.
+     */
+
+    char *name = kmalloc(10, GFP_KERNEL);
+    sprintf(name, "cheesymac");
+             
+    int i;
+    for(i=0; i<inst->runningmacs; i++)
+    {
+    	if(inst->macs[i])
+	{
+		if(strncmp(name, inst->macs[i]->name, sizeof(name))==0)
+    			break;
+	}
+    }
+     
+    int txresult = -1;
+    if(inst->macs[i])
+	txresult = (inst->macs[i]->mytxfunc)(inst,packet,0);
+//txresult = cu_softmac_mac_packet_tx_cheesymac(inst,packet,0);
+	
+    if (CU_SOFTMAC_MAC_TX_OK != txresult)
+    {
+      dev_kfree_skb(packet);
+    }
+  
+  kfree(name);
+  return 0;
+ }
+}
+
 
 static int
 cheesymac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
@@ -726,11 +802,12 @@ static int __init softmac_cheesymac_init(void)
 	    printk(KERN_DEBUG "CheesyMAC: Attaching to %s\n",ifnamebuf);
 	    cheesymac_softmac_netif = cu_softmac_netif_from_dev(checknet);
 	    dev_put(checknet);
-	    cu_softmac_netif_set_tx_callback(cheesymac_softmac_netif,cheesymac_netif_txhelper,newmacinfo.mac_private);
+	    //cu_softmac_netif_set_tx_callback(cheesymac_softmac_netif,cheesymac_netif_txhelper,newmacinfo.mac_private);
+	    cu_softmac_netif_set_tx_callback(cheesymac_softmac_netif,metamac_netif_txhelper,newmacinfo.mac_private);
 	  }
 	  else {
 	    printk(KERN_DEBUG "CheesyMAC: Creating %s\n",ifnamebuf);
-	    cheesymac_softmac_netif = cu_softmac_netif_create_eth(ifnamebuf,0,cheesymac_netif_txhelper,newmacinfo.mac_private);
+	    cheesymac_softmac_netif = cu_softmac_netif_create_eth(ifnamebuf,0,metamac_netif_txhelper,newmacinfo.mac_private);
 	  }
 	  if (cheesymac_softmac_netif) {
 	    printk(KERN_DEBUG "CheesyMAC: Setting mac unload notify func\n");
@@ -1444,10 +1521,16 @@ cheesymac_inst_read_proc(char *page, char **start, off_t off,
       
       int i;
       sprintf(layers, "\0");
-      for(i=0; i<inst->runningmacs; i++)
+      
+      //for(i=0; i<inst->runningmacs; i++)
+      //{
+      for(i=0; i<10; i++)
       {
+      	if(inst->macs[i]!=NULL)
+	{
            sprintf(tmp, "%s", layers);
 	   if(i>0) sprintf(layers, "%s %s", tmp, inst->macs[i]->name); else sprintf(layers, "%s", inst->macs[i]->name);
+	}
       }
       
       result = snprintf(dest,count,"%s", layers);
@@ -1550,29 +1633,67 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       write_lock(&(inst->mac_busy));
       
       int i;
+      int success=0;
       
-      inst->macs[inst->runningmacs] = kmalloc(sizeof(MAC_INSTANCE), GFP_KERNEL);
-      inst->macs[inst->runningmacs]->name = kmalloc(result, GFP_KERNEL);
-      copy_from_user((inst->macs[inst->runningmacs])->name, buffer, result-1);
+      for(i=0; i<10; i++)
+      {
+      	if(inst->macs[i]==NULL)
+	{
+		printk("Found slot. Adding mac layer %d.\n", result);
+      
+	      	inst->macs[i] = kmalloc(sizeof(MAC_INSTANCE), GFP_KERNEL);
+		inst->macs[i]->name = kmalloc(64, GFP_KERNEL);
+              	copy_from_user((inst->macs[i])->name, buffer, result);
+		inst->macs[i]->name[result-1] = '\0';
+		
+	      	// Create and fetch a new instance
+	      	//(inst->macs[i])->mac = cu_softmac_layer_new_instance(inst->macs[i])->name);  
 
-      // Create and fetch a new instance
-      inst->mac = cu_softmac_layer_new_instance(inst->macs[inst->runningmacs])->name);  
-
-      inst->runningmacs++;
+		inst->runningmacs++;
+	
+		success=1;
+		break;	
+	}
+      }
+      
+      if(success==0)
+      	printk("Could not add mac layer. No available slots found.\n");
+      
       write_unlock(&(inst->mac_busy));
       break;
      case CHEESYMAC_INST_PROC_DELETEMAC:
       intval = simple_strtol(kdata,&endp,10);
       write_lock(&(inst->mac_busy));
+      
+      char *dname = kmalloc(64, GFP_KERNEL);
+      copy_from_user(dname, buffer, 63);
+      dname[result]='\0';
+            
       if((inst->runningmacs)>=1)
       {
-      	CU_SOFTMAC_MACLAYER_INFO *macinfo = inst->macs[inst->runningmacs]->mac;
-	char *n = inst->macs[inst->runningmacs]->name;
-      	cu_softmac_layer_free_instance(n, macinfo);
       
-      	kfree(inst->macs[inst->runningmacs]);
-	inst->runningmacs--;
+	int i;
+	
+        for(i=0; i<10; i++)
+      	{
+      		if(inst->macs[i]!=NULL)
+		{
+			if(strncmp(inst->macs[i]->name, dname, result-1)==0)
+			{
+				//CU_SOFTMAC_MACLAYER_INFO *macinfo = inst->macs[i]->mac;
+				char *n = inst->macs[i]->name;
+      				// cu_softmac_layer_free_instance(n, macinfo);
+			      	
+				kfree(inst->macs[i]);
+				inst->macs[i] = NULL;
+				inst->runningmacs--;
+				printk("Mac layer removed.\n");
+				break;
+			}
+		}      
+	}
       }
+      
       write_unlock(&(inst->mac_busy));
       break;
       /*
