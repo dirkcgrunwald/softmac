@@ -40,7 +40,7 @@
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
 #include "../core/cu_softmac_api.h"
-#include "../madwifi_bsd_phy/cu_softmac_ath_api.h"
+//#include "../madwifi_bsd_phy/cu_softmac_ath_api.h"
 #include "../linux_netif/softmac_netif.h"
 #include "softmac_multimac.h"
 
@@ -780,8 +780,8 @@ static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst, struct sk_bu
     /*
      * XXX use of atheros-specific PHY calls!!!
      */
-      cu_softmac_ath_set_default_phy_props(inst->myphy->phy_private, skb);
-      cu_softmac_ath_set_tx_bitrate(inst->myphy->phy_private, skb, inst->txbitrate);    
+      //cu_softmac_ath_set_default_phy_props(inst->myphy->phy_private, skb);
+      //cu_softmac_ath_set_tx_bitrate(inst->myphy->phy_private, skb, inst->txbitrate);    
   }
 }
 
@@ -1181,11 +1181,12 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     inst->my_procfs_root = cheesymac_procfsroot_handle;
     cheesymac_make_procfs_entries(inst);
 
+    /* release write lock */
+    write_unlock(&(inst->mac_busy));
+
     /* create and attach to our Linux network interface */
     cheesymac_create_and_attach_netif(inst);
 
-    /* release write lock */
-    write_unlock(&(inst->mac_busy));
   }
   else {
     printk(KERN_ALERT "CheesyMAC create_instance: Unable to allocate memory!\n");
