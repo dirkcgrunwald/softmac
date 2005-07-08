@@ -544,6 +544,7 @@ static int cheesymac_ath_deferalltxdone = CHEESYMAC_DEFAULT_DEFERALLTXDONE;
  */
 static char *cheesymac_procfsroot = "multimac";
 static struct proc_dir_entry* cheesymac_procfsroot_handle = 0;
+char *currentmacname;
 
 /*
  * Default network interface to use as a softmac phy layer
@@ -622,7 +623,7 @@ metamac_set_tx_func(char *name,
     {
     	if(inst->macs[i])
 	{
-		if(strncmp(name, inst->macs[i]->name, sizeof(name))==0)
+		if(strncmp(name, inst->macs[i]->name, sizeof(currentmacname))==0)
 		{
 			//if(txfunc)
 			//	inst->mytxfunc = txfunc;
@@ -651,15 +652,12 @@ metamac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
      * instigated by a softirq in the bottom half.
      */
 
-    char *name = kmalloc(10, GFP_KERNEL);
-    sprintf(name, "mac1");
-             
     int i;
     for(i=0; i<inst->runningmacs; i++)
     {
     	if(inst->macs[i])
 	{
-		if(strncmp(name, inst->macs[i]->name, sizeof(name))==0)
+		if(strncmp(currentmacname, inst->macs[i]->name, sizeof(currentmacname))==0)
     			break;
 	}
     }
@@ -671,14 +669,18 @@ metamac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
     }else
     	printk("Autsch!\n");
 
+// RR Code
+	if(strncmp(currentmacname, "mac1", sizeof(currentmacname))==0)
+		sprintf(currentmacname, "mac2");
+	else
+		sprintf(currentmacname, "mac1");
+	
 //txresult = cu_softmac_mac_packet_tx_cheesymac(inst,packet,0);
 	
     if (CU_SOFTMAC_MAC_TX_OK != txresult)
     {
       dev_kfree_skb(packet);
     }
-  
-  kfree(name);
  }
  return 0;
 }
@@ -783,6 +785,76 @@ static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst, struct sk_bu
       //cu_softmac_ath_set_default_phy_props(inst->myphy->phy_private, skb);
       //cu_softmac_ath_set_tx_bitrate(inst->myphy->phy_private, skb, inst->txbitrate);    
   }
+}
+
+
+static int multimac_tx(void* mydata,
+					      struct sk_buff* packet,
+					      int intop)
+{
+  CHEESYMAC_INSTANCE* inst = mydata;
+  int status = CU_SOFTMAC_MAC_TX_OK;
+  int txresult = CU_SOFTMAC_PHY_SENDPACKET_OK;
+
+  printk("a\n");
+  
+  if (inst && inst->myphy) {
+  	printk("b\n");
+    read_lock(&(inst->mac_busy));
+    /*
+     * Check to see if we're in the top half or bottom half, i.e. are
+     * we taking an interrupt right now?
+     */
+      struct sk_buff* skb = 0;
+      /*
+       * NOT in top half -- process our transmit queue
+       */
+      if (packet) {
+	skb_queue_tail(&(inst->tx_skbqueue),packet);
+      }
+      /*
+       * Walk our transmit queue, shovelling out packets as we go...
+       */
+      while ((skb = skb_dequeue(&(inst->tx_skbqueue)))) {
+	/*
+	 * CODEX STEP 8 BEGIN
+	 * Call encryption when send function is in bottom half
+	 */
+	/*
+	 * "Encrypt" packets on the way out if applicable.
+	 */
+	/*
+	if (inst->use_crypto) {
+	  cheesymac_rot128(skb);
+	}
+	*/
+	/*
+	 * CODEX STEP 8 END
+	 */
+	cu_softmac_cheesymac_prep_skb(inst, packet);
+	txresult = (inst->myphy->cu_softmac_phy_sendpacket)(inst->myphy->phy_private, 
+							    inst->maxinflight, 
+							    packet);
+	if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
+	  printk(KERN_ALERT "SoftMAC CheesyMAC: tasklet packet tx failed: %d\n",txresult);
+	  /*
+	   * N.B. we return an "OK" for the transmit because
+	   * we're handling the sk_buff freeing down here --
+	   * as far as the caller is concerned we were successful.
+	   */
+	}
+    }
+    read_unlock(&(inst->mac_busy));
+  }
+  else {
+    /*
+     * Could not get our instance handle -- let the caller know...
+     */
+    printk(KERN_ALERT "CheesyMAC: packet_tx -- no instance handle!\n");
+    status = CU_SOFTMAC_MAC_TX_FAIL;
+  }
+
+  return status;
 }
 
 /**
@@ -1186,7 +1258,16 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
 
     /* create and attach to our Linux network interface */
     cheesymac_create_and_attach_netif(inst);
+    
+    CU_SOFTMAC_PHY_HANDLE* phy;
+    phy = cu_softmac_layer_new_instance("athphy");
+    phy = cu_softmac_macinfo_get_by_name("ath0");
+    
+    inst->myphy = phy;
 
+    // RR-Thing - Remove!    
+    currentmacname = kmalloc(10, GFP_KERNEL);
+    sprintf(currentmacname, "mac1");
   }
   else {
     printk(KERN_ALERT "CheesyMAC create_instance: Unable to allocate memory!\n");
@@ -1869,6 +1950,7 @@ static void __exit softmac_cheesymac_exit(void)
 module_init(softmac_cheesymac_init);
 module_exit(softmac_cheesymac_exit);
 
+EXPORT_SYMBOL(multimac_tx);
 EXPORT_SYMBOL(cu_softmac_cheesymac_new_instance);
 EXPORT_SYMBOL(cu_softmac_cheesymac_free_instance);
 EXPORT_SYMBOL(cu_softmac_cheesymac_set_macinfo_functions);
