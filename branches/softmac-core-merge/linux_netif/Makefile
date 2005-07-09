@@ -1,11 +1,6 @@
 obj-m += softmac_netif.o
-#obj-m += startstop.o
-#startstop-objs := start.o stop.o
 
-KERNELSOURCE=/usr/src/linux
+DEPTH=..
+include ${PWD}/${DEPTH}/Makefile.inc
 
-install:
-	make -C ${KERNELSOURCE} SUBDIRS=${PWD} modules
-	
-clean:
-	@rm -f *.ko *.mod.c .*o.cmd
+all: modules

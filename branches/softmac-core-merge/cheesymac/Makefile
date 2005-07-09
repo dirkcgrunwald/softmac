@@ -1,15 +1,6 @@
 obj-m += softmac_cheesymac.o
 
-ifndef KERNELSOURCE
-KERNELSOURCE=/usr/src/linux
-$(warning WARNING: KERNELSOURCE not defined, using ${KERNELSOURCE})
-endif
+DEPTH=..
+include ${PWD}/${DEPTH}/Makefile.inc
 
-all:
-	make -C ${KERNELSOURCE} SUBDIRS=${PWD} modules
-
-install:
-	make -C ${KERNELSOURCE} SUBDIRS=${PWD} install
-
-clean:
-	make -C ${KERNELSOURCE} SUBDIRS=${PWD} clean
+all: modules

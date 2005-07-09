@@ -25,7 +25,7 @@
 #ifndef _CU_SOFTMAC_ATH_API_H
 #define _CU_SOFTMAC_ATH_API_H
 
-#include "../core/cu_softmac_api.h"
+#include "cu_softmac_api.h"
 
 /*
  * The Atheros driver doesn't really offer enough direct control

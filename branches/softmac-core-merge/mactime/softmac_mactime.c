@@ -8,7 +8,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/stat.h>
-#include "../cu_softmac_api.h"
+#include "cu_softmac_api.h"
 #include "softmac_mactime.h"
 
 MODULE_LICENSE("GPL");
@@ -27,8 +27,8 @@ int32_t
 cu_softmac_mactime_tdma_slotstatus(CU_SOFTMAC_MACTIME_STATE* mts,
 				   u_int32_t* pcurslot) {
   int32_t result = 0;
-  if (mts && mts->phyinfo && mts->phyinfo->cu_softmac_get_time) {
-    u_int32_t now = mts->phyinfo->cu_softmac_get_time(mts->phyinfo->phyhandle);
+  if (mts && mts->phyinfo && mts->phyinfo->cu_softmac_phy_get_time) {
+    u_int32_t now = mts->phyinfo->cu_softmac_phy_get_time(mts->phyinfo->phy_private);
     u_int32_t slotcount = (now/mts->tdma_slotlen);
     u_int32_t curslot = mts->tdma_slotcount;
     u_int64_t curslotstart = slotcount * mts->tdma_slotlen;
@@ -61,8 +61,8 @@ cu_softmac_mactime_tdma_slotstatus(CU_SOFTMAC_MACTIME_STATE* mts,
 int32_t
 cu_softmac_mactime_tdma_timetonextslot(CU_SOFTMAC_MACTIME_STATE* mts) {
   int32_t result = -1;
-  if (mts && mts->phyinfo && mts->phyinfo->cu_softmac_get_time) {
-    u_int32_t now = mts->phyinfo->cu_softmac_get_time(mts->phyinfo->phyhandle);
+  if (mts && mts->phyinfo && mts->phyinfo->cu_softmac_phy_get_time) {
+    u_int32_t now = mts->phyinfo->cu_softmac_phy_get_time(mts->phyinfo->phy_private);
     u_int32_t slotcount = (now/mts->tdma_slotlen);
     u_int32_t curslot = slotcount % mts->tdma_slotcount;
     u_int64_t curslotstart = curslot * mts->tdma_slotlen;
@@ -94,12 +94,12 @@ cu_softmac_mactime_tdma_xmitwhen(CU_SOFTMAC_MACTIME_STATE* mts,
 				 struct sk_buff* packet) {
   int32_t result = 0;
   if (mts && mts->phyinfo &&
-      mts->phyinfo->cu_softmac_get_duration &&
-      mts->phyinfo->cu_softmac_get_txlatency) {
-    CU_SOFTMAC_PHY_HANDLE phyhandle = mts->phyinfo->phyhandle;
+      mts->phyinfo->cu_softmac_phy_get_duration &&
+      mts->phyinfo->cu_softmac_phy_get_txlatency) {
+    CU_SOFTMAC_PHY_HANDLE phyhandle = mts->phyinfo->phy_private;
     int32_t slotstat = cu_softmac_mactime_tdma_slotstatus(mts,0);
-    int32_t txlat = (mts->phyinfo->cu_softmac_get_txlatency)(phyhandle);
-    int32_t pktlen = (mts->phyinfo->cu_softmac_get_duration)(phyhandle,
+    int32_t txlat = (mts->phyinfo->cu_softmac_phy_get_txlatency)(phyhandle);
+    int32_t pktlen = (mts->phyinfo->cu_softmac_phy_get_duration)(phyhandle,
 							     packet);
     int32_t maxtxlen = mts->tdma_slotlen - 2*mts->tdma_guardtime;
 

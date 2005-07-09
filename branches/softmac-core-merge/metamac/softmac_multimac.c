@@ -39,9 +39,9 @@
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
-#include "../core/cu_softmac_api.h"
-//#include "../madwifi_bsd_phy/cu_softmac_ath_api.h"
-#include "../linux_netif/softmac_netif.h"
+#include "cu_softmac_api.h"
+//#include "cu_softmac_ath_api.h"
+#include "softmac_netif.h"
 #include "softmac_multimac.h"
 
 MODULE_LICENSE("GPL");

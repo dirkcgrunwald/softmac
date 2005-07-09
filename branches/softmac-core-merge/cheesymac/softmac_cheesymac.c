@@ -39,9 +39,9 @@
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
-#include "../core/cu_softmac_api.h"
-#include "../madwifi_bsd_phy/cu_softmac_ath_api.h"
-#include "../linux_netif/softmac_netif.h"
+#include "cu_softmac_api.h"
+#include "cu_softmac_ath_api.h"
+#include "softmac_netif.h"
 #include "softmac_cheesymac.h"
 
 MODULE_LICENSE("GPL");
@@ -82,9 +82,9 @@ typedef struct CHEESYMAC_INSTANCE_t {
 
   /**
    * @brief Keep a handle to the currently attached PHY layer.
-   * XXX turn this into a read/write spinlock?
    */
   CU_SOFTMAC_PHYLAYER_INFO *myphy;
+  CU_SOFTMAC_PHYLAYER_INFO *defaultphy;
 
   /**
    * @brief Pointer to macinfo structure representing this MAC instance
@@ -598,16 +598,16 @@ static int cheesymac_create_and_attach_netif(void *mypriv)
     }
     if (inst->netif) {
 	//printk(KERN_DEBUG "CheesyMAC: Setting mac unload notify func\n");
-	(macinfo->cu_softmac_mac_set_unload_notify_func)(inst,
-							 cu_softmac_netif_detach,
-							 inst->netif);
+	cu_softmac_mac_set_unload_notify_func_cheesymac(inst,
+							cu_softmac_netif_detach,
+							inst->netif);
 	//printk(KERN_DEBUG "CheesyMAC: Setting netif unload callback func\n");
 	cu_softmac_netif_set_unload_callback(inst->netif,
 					     cheesymac_netif_unload_helper,
 					     inst);
-	(macinfo->cu_softmac_mac_set_rx_func)(inst,
-					      cu_softmac_netif_rx_packet,
-					      inst->netif);
+	cu_softmac_mac_set_rx_func_cheesymac(inst,
+					     cu_softmac_netif_rx_packet,
+					     inst->netif);
     }
     else {
 	printk(KERN_ALERT "CheesyMAC: Unable to attach to netif!\n");
@@ -644,7 +644,7 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
   int status = CU_SOFTMAC_MAC_TX_OK;
   int txresult = CU_SOFTMAC_PHY_SENDPACKET_OK;
 
-  if (inst && inst->myphy) {
+  if (inst) {
     read_lock(&(inst->mac_busy));
     /*
      * Check to see if we're in the top half or bottom half, i.e. are
@@ -740,7 +740,7 @@ static int cu_softmac_mac_packet_tx_done_cheesymac(void* mydata,
   int status = CU_SOFTMAC_MAC_NOTIFY_OK;
   CHEESYMAC_INSTANCE* inst = mydata;
 
-  if (inst && inst->myphy) {
+  if (inst) {
     read_lock(&(inst->mac_busy));
     /*
      * Check to see if we're supposed to defer handling
@@ -986,7 +986,8 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     INIT_LIST_HEAD(&inst->my_procfs_data);
 
     /* fire up the instance... */
-    inst->myphy = 0;
+    inst->defaultphy = cu_softmac_phyinfo_alloc();
+    inst->myphy = inst->defaultphy;
     inst->mymac = macinfo;
 
     /* access the global cheesymac variables safely */
@@ -1026,11 +1027,11 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     inst->my_procfs_root = cheesymac_procfsroot_handle;
     cheesymac_make_procfs_entries(inst);
 
-    /* create and attach to our Linux network interface */
-    cheesymac_create_and_attach_netif(inst);
-
     /* release write lock */
     write_unlock(&(inst->mac_busy));
+
+    /* create and attach to our Linux network interface */
+    cheesymac_create_and_attach_netif(inst);
   }
   else {
     printk(KERN_ALERT "CheesyMAC create_instance: Unable to allocate memory!\n");
@@ -1049,9 +1050,11 @@ static void cheesymac_destroy_instance(void* mypriv)
     
     if (inst) {
 	list_del(&(inst->list));
-		
+	
+	/* detach from phy */
+	cu_softmac_mac_detach_cheesymac(mypriv);
+
 	/* Notify folks that we're going away... */
-	inst->mymac->cu_softmac_mac_detach(inst);
 	if (inst->myunloadnotifyfunc) {
 	    (inst->myunloadnotifyfunc)(inst->myunloadnotifyfunc_priv);
 	}
@@ -1077,7 +1080,9 @@ static void cheesymac_destroy_instance(void* mypriv)
 	
 	inst->mymac = 0;
 	inst->myphy = 0;
-	
+	cu_softmac_phyinfo_free(inst->defaultphy);
+	inst->defaultphy = 0;
+
 	write_unlock(&(inst->mac_busy));
 
 	kfree(inst);
@@ -1389,31 +1394,16 @@ cu_softmac_mac_attach_cheesymac(void* handle,
   int result = 0;
 
   if (inst && phyinfo) {
-
-    //printk(KERN_DEBUG "SoftMAC CheesyMAC: Attaching to PHY -- getting lock\n");
-    write_lock(&(inst->mac_busy));
-    //printk(KERN_DEBUG "SoftMAC CheesyMAC: Attaching to PHY -- got lock\n");
-
-    if (inst->myphy) {
-      /*
-       * Already attached -- bail out
-       */
-      printk(KERN_ALERT "SoftMAC CheesyMAC: Attempting to attach to a phy layer while still attached to a phy layer!\n");
-      result = -1;
-    }
-    else {
-      /*
-       * Set the phy info and then attach a cheesymac instance
-       */
+      cu_softmac_mac_detach_cheesymac(handle);
+      write_lock(&(inst->mac_busy));
       inst->myphy = cu_softmac_phyinfo_get(phyinfo);
-    }
-    //printk(KERN_DEBUG "SoftMAC CheesyMAC: Unlocking MAC\n");
-    write_unlock(&(inst->mac_busy));
+      write_unlock(&(inst->mac_busy));
   }
   else {
-    printk(KERN_ALERT "SoftMAC CheesyMAC: Invalid MAC/PHY data on attach!\n");
-    result = -1;
+      printk(KERN_ALERT "SoftMAC CheesyMAC: Invalid MAC/PHY data on attach!\n");
+      result = -1;
   }
+
   return result;
 }
 
@@ -1422,15 +1412,17 @@ cu_softmac_mac_detach_cheesymac(void* handle) {
   CHEESYMAC_INSTANCE* inst = handle;
   int result = 0;
 
-  write_lock(&(inst->mac_busy));
-  if (inst && inst->myphy) {
-      inst->myphy->cu_softmac_phy_detach(inst->myphy->phy_private);
-      cu_softmac_phyinfo_free(inst->myphy);
-      inst->myphy = 0;
-      //printk(KERN_DEBUG "CheesyMAC: mac_detach -- done\n");
+  if (inst) {
+      write_lock(&(inst->mac_busy));
+      if (inst->myphy != inst->defaultphy) {
+	  cu_softmac_phyinfo_free(inst->myphy);
+	  inst->myphy = inst->defaultphy;
+      }
+      write_unlock(&(inst->mac_busy));
+  } else {
+      printk(KERN_ALERT "SoftMAC CheesyMAC: Invalid MAC/PHY data on detach!\n");
+      result = -1;
   }
-  write_unlock(&(inst->mac_busy));
-
   return result;
 }
 

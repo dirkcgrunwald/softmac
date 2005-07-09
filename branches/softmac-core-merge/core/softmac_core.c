@@ -120,6 +120,7 @@ typedef struct {
 enum {
     SOFTMAC_PROC_CREATE_INSTANCE,
     SOFTMAC_PROC_DELETE_INSTANCE,
+    SOFTMAC_PROC_TEST,
 };
 
 static const SOFTMAC_PROC_ENTRY softmac_proc_entries[] = {
@@ -132,6 +133,11 @@ static const SOFTMAC_PROC_ENTRY softmac_proc_entries[] = {
 	"delete_instance",
 	0200,
 	SOFTMAC_PROC_DELETE_INSTANCE
+    },
+    {
+	"test",
+	0200,
+	SOFTMAC_PROC_TEST
     },
 
     /* the terminator */
@@ -149,7 +155,6 @@ typedef struct {
   int id;
 
 } SOFTMAC_PROC_DATA;
-
 
 static struct proc_dir_entry *softmac_procfs_root;
 static struct proc_dir_entry *softmac_procfs_layers;
@@ -226,6 +231,8 @@ softmac_procfs_read(char *page, char **start, off_t off,
     return 0;
 }
 
+static void softmac_test(void);
+
 static int
 softmac_procfs_write(struct file *file, const char __user *buffer,
 		     unsigned long count, void *data)
@@ -270,6 +277,9 @@ softmac_procfs_write(struct file *file, const char __user *buffer,
 	}
 	break;
 
+    case SOFTMAC_PROC_TEST:
+	softmac_test();
+	break;
     default:
 	break;
     }
@@ -586,10 +596,10 @@ cu_softmac_phyinfo_alloc(void)
 void
 cu_softmac_phyinfo_free(CU_SOFTMAC_PHYLAYER_INFO *phyinfo)
 {
-    //printk("%s\n", __func__);
+    printk("%s\n", __func__);
 
-    if (atomic_dec_and_test(&phyinfo->refcnt)) {
-	//printk("%s freed\n", __func__);
+    if (phyinfo && atomic_dec_and_test(&phyinfo->refcnt)) {
+	printk("%s freed\n", __func__);
 	if (phyinfo->phy_private)
 	    cu_softmac_layer_free_instance(phyinfo);
 	kfree(phyinfo);
@@ -613,7 +623,6 @@ cu_softmac_phyinfo_init(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
     phyinfo->cu_softmac_phy_sendpacket_keepskbonfail=cu_softmac_phy_sendpacket_keepskbonfail_dummy;
     phyinfo->cu_softmac_phy_get_duration = cu_softmac_phy_get_duration_dummy;
     phyinfo->cu_softmac_phy_get_txlatency = cu_softmac_phy_get_txlatency_dummy;
-    phyinfo->phy_private = 0;
 }
 
 void 
@@ -714,10 +723,10 @@ cu_softmac_macinfo_alloc(void)
 void
 cu_softmac_macinfo_free(CU_SOFTMAC_MACLAYER_INFO *macinfo)
 {
-    //printk("%s\n", __func__);
+    printk("%s\n", __func__);
 
-    if (atomic_dec_and_test(&macinfo->refcnt)) {
-	//printk("%s freed\n", __func__);
+    if (macinfo && atomic_dec_and_test(&macinfo->refcnt)) {
+	printk("%s freed\n", __func__);
 	if (macinfo->mac_private)
 	    cu_softmac_layer_free_instance(macinfo);
 	kfree(macinfo);
@@ -738,7 +747,6 @@ cu_softmac_macinfo_init(CU_SOFTMAC_MACLAYER_INFO* macinfo)
     macinfo->cu_softmac_mac_detach = cu_softmac_mac_detach_dummy;
     macinfo->cu_softmac_mac_set_rx_func = cu_softmac_mac_set_rx_func_dummy;
     macinfo->cu_softmac_mac_set_unload_notify_func = cu_softmac_mac_set_unload_notify_func_dummy;
-    macinfo->mac_private = 0;
 }
 
 void 
@@ -828,6 +836,18 @@ cu_softmac_macinfo_get_by_name(const char *name)
 **
 **
 */
+
+static void softmac_test(void)
+{
+    CU_SOFTMAC_MACLAYER_INFO *mac;
+    CU_SOFTMAC_PHYLAYER_INFO *phy;
+
+    mac = cu_softmac_layer_new_instance("cheesymac");
+    phy = cu_softmac_layer_new_instance("athphy");
+
+    mac->cu_softmac_mac_attach(mac->mac_private, phy);
+    phy->cu_softmac_phy_attach(phy->phy_private, mac);
+}
 
 static int __init softmac_core_init(void)
 {

@@ -36,7 +36,7 @@
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
-#include "../../core/cu_softmac_api.h"
+#include "cu_softmac_api.h"
 
 MODULE_LICENSE("GPL");
 

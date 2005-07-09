@@ -58,8 +58,8 @@ __FBSDID("$FreeBSD: src/sys/dev/ath/if_ath.c,v 1.76 2005/01/24 20:31:24 sam Exp 
 #include <linux/if_arp.h>
 #ifdef HAS_CU_SOFTMAC
 #include <linux/etherdevice.h>
-#include "../../core/cu_softmac_api.h"
-#include "../cu_softmac_ath_api.h"
+#include "cu_softmac_api.h"
+#include "cu_softmac_ath_api.h"
 #endif
 
 #include <asm/uaccess.h>
@@ -446,7 +446,8 @@ ath_attach(u_int16_t devid, struct net_device *dev)
 
 	atomic_set(&(sc->sc_cu_softmac_tx_packets_inflight),0);
 	sc->sc_cu_softmac_mac_lock = RW_LOCK_UNLOCKED;
-	sc->sc_cu_softmac_mac = 0;
+	sc->sc_cu_softmac_defaultmac = cu_softmac_macinfo_alloc();
+	sc->sc_cu_softmac_mac = sc->sc_cu_softmac_defaultmac;
 	sc->sc_cu_softmac_phy = 0;
 	sc->sc_cu_softmac_txlatency = ATH_CU_SOFTMAC_DEFAULT_TXLATENCY;
 	sc->sc_cu_softmac_phocus_settletime = ATH_CU_SOFTMAC_DEFAULT_PHOCUS_SETTLETIME;
@@ -877,6 +878,11 @@ ath_detach(struct net_device *dev)
 	ath_tx_cleanup(sc);
 	ath_hal_detach(sc->sc_ah);
 
+#ifdef HAS_CU_SOFTMAC
+	ath_cu_softmac_unregister(sc);
+	cu_softmac_macinfo_free(sc->sc_cu_softmac_defaultmac);
+#endif
+
 	/*
 	 * NB: can't reclaim these until after ieee80211_ifdetach
 	 * returns because we'll get called back to reclaim node
@@ -887,7 +893,6 @@ ath_detach(struct net_device *dev)
 #endif /* CONFIG_SYSCTL */
 	ath_rawdev_detach(sc);
 	unregister_netdev(dev);
-
 	return 0;
 }
 
@@ -6940,24 +6945,23 @@ void cu_softmac_ath_set_phocus_state(u_int16_t state,int16_t settle)
 int
 cu_softmac_phy_attach_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* macinfo)
 {
-    struct ath_softc* sc = (struct ath_softc*)nfh;
-    int result = 0;
-
-    /* lock the mac */
-    write_lock(&(sc->sc_cu_softmac_mac_lock));
-
-    /* detach previous MAC */
-    if (sc->sc_cu_softmac_mac) {
-	sc->sc_cu_softmac_mac->cu_softmac_mac_detach(sc->sc_cu_softmac_mac->mac_private);
-	cu_softmac_macinfo_free(sc->sc_cu_softmac_mac);
-    }
+  printk("%s\n", __func__);
     
-    /* get private copy of new MAC */
-    sc->sc_cu_softmac_mac = cu_softmac_macinfo_get(macinfo);
-    
-    /* unlock the mac */
-    write_unlock(&(sc->sc_cu_softmac_mac_lock));
-    return result;
+  struct ath_softc* sc = (struct ath_softc*)nfh;
+  int result = 0;
+  
+  cu_softmac_phy_detach_ath(nfh);
+  
+  /* lock the mac */
+  write_lock(&(sc->sc_cu_softmac_mac_lock));
+  
+  /* get private copy of new MAC */
+  sc->sc_cu_softmac_mac = cu_softmac_macinfo_get(macinfo);
+  
+  /* unlock the mac */
+  write_unlock(&(sc->sc_cu_softmac_mac_lock));
+  
+  return result;
 }
 
 /*
@@ -6966,19 +6970,19 @@ cu_softmac_phy_attach_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* ma
 void
 cu_softmac_phy_detach_ath(CU_SOFTMAC_PHY_HANDLE nfh)
 {
+  printk("%s\n", __func__);
+
   // XXX perform a sanity check
   struct ath_softc *sc = (struct ath_softc*) nfh;
-  CU_SOFTMAC_MACLAYER_INFO mactmp;
 
-  printk(KERN_DEBUG "SoftMAC MADWIFI: About to detach MAC -- getting lock\n");
+  if (sc->sc_cu_softmac_mac == sc->sc_cu_softmac_defaultmac)
+      return;
+
   write_lock(&(sc->sc_cu_softmac_mac_lock));
 
-  if (sc->sc_cu_softmac_mac) {
-      cu_softmac_macinfo_free(sc->sc_cu_softmac_mac);
-      sc->sc_cu_softmac_mac = 0;
-  }
+  cu_softmac_macinfo_free(sc->sc_cu_softmac_mac);
+  sc->sc_cu_softmac_mac = sc->sc_cu_softmac_defaultmac;
 
-  printk(KERN_DEBUG "SoftMAC MADWIFI: Finished detaching MAC\n");
   write_unlock(&(sc->sc_cu_softmac_mac_lock));
 }
 
@@ -7058,7 +7062,6 @@ cu_softmac_phy_sendpacket_ath(CU_SOFTMAC_PHY_HANDLE nfh,
 			      int max_packets_inflight,
 			      struct sk_buff* skb)
 {
-    printk("%s\n",__func__);
   int result = cu_softmac_phy_sendpacket_keepskbonfail_ath(nfh,max_packets_inflight,skb);
   if (0 != result) {
     dev_kfree_skb(skb);
@@ -8060,7 +8063,7 @@ cu_softmac_layer_free_instance_ath(void *layer_private, void *phy)
     CU_SOFTMAC_PHYLAYER_INFO *phyinfo = phy;
     struct ath_softc *sc = phyinfo->phy_private;
     if (phyinfo == sc->sc_cu_softmac_phy)
-	sc->sc_cu_softmac_phy = 0;
+	cu_softmac_phy_detach_ath(sc);
 }
 
 static void
