@@ -12,6 +12,7 @@ SUBDIRS=cheesymac \
 ifndef KERNELSOURCE
 $(warning WARNING: KERNELSOURCE undefined, using /usr/src/linux)
 KERNELSOURCE=/usr/src/linux
+export KERNELSOURCE
 endif
 
 DESTDIR ?= /usr/local
@@ -32,10 +33,6 @@ install: all
 	for dir in ${SUBDIRS}; do \
 		(cd $$dir; ${MAKE} install) || exit 1; \
 	done
-
-DST=jfifield@enigma.mtnhigh.net:tmp
-scp-install:
-	scp `find ${PWD} -name "*.ko"` ${DST}
 
 clean:
 	for dir in ${SUBDIRS}; do \
