@@ -120,6 +120,8 @@ typedef struct {
 enum {
     SOFTMAC_PROC_CREATE_INSTANCE,
     SOFTMAC_PROC_DELETE_INSTANCE,
+    SOFTMAC_PROC_CHEESYATH_START,
+    SOFTMAC_PROC_CHEESYATH_STOP,
     SOFTMAC_PROC_TEST,
 };
 
@@ -133,6 +135,16 @@ static const SOFTMAC_PROC_ENTRY softmac_proc_entries[] = {
 	"delete_instance",
 	0200,
 	SOFTMAC_PROC_DELETE_INSTANCE
+    },
+    {
+	"cheesyath_start",
+	0200,
+	SOFTMAC_PROC_CHEESYATH_START
+    },
+    {
+	"cheesyath_stop",
+	0200,
+	SOFTMAC_PROC_CHEESYATH_STOP
     },
     {
 	"test",
@@ -232,6 +244,8 @@ softmac_procfs_read(char *page, char **start, off_t off,
 }
 
 static void softmac_test(void);
+static void softmac_cheesyath_start(void);
+static void softmac_cheesyath_stop(void);
 
 static int
 softmac_procfs_write(struct file *file, const char __user *buffer,
@@ -275,6 +289,14 @@ softmac_procfs_write(struct file *file, const char __user *buffer,
 	    cu_softmac_phyinfo_unregister(phyinfo);
 	    break;
 	}
+	break;
+
+    case SOFTMAC_PROC_CHEESYATH_START:
+	softmac_cheesyath_start();
+	break;
+
+    case SOFTMAC_PROC_CHEESYATH_STOP:
+	softmac_cheesyath_stop();
 	break;
 
     case SOFTMAC_PROC_TEST:
@@ -837,17 +859,57 @@ cu_softmac_macinfo_get_by_name(const char *name)
 **
 */
 
+/* XXX start test code */
+static CU_SOFTMAC_MACLAYER_INFO *testmac;
+static CU_SOFTMAC_PHYLAYER_INFO *testphy;
+
+static void softmac_cheesyath_start()
+{
+    if (testmac || testphy) {
+	printk("%s cheesymac or athphy instance already exists\n", __func__);
+	return;
+    }
+
+    testmac = cu_softmac_layer_new_instance("cheesymac");
+    testphy = cu_softmac_layer_new_instance("athphy");
+    
+    if (!(testmac && testphy)) {
+	printk("%s failed to create cheesymac or athphy instance\n", __func__);
+	return;
+    }
+
+    cu_softmac_macinfo_get(testmac);
+    cu_softmac_phyinfo_get(testphy);
+
+    testmac->cu_softmac_mac_attach(testmac->mac_private, testphy);
+    testphy->cu_softmac_phy_attach(testphy->phy_private, testmac);
+
+    printk("%s cheesyath started\n", __func__);
+}
+
+static void softmac_cheesyath_stop()
+{
+    if (!(testmac && testphy)) {
+	printk("%s cheesyath not active\n", __func__);
+	return;
+    }
+    testmac->cu_softmac_mac_detach(testmac->mac_private);
+    testphy->cu_softmac_phy_detach(testphy->phy_private);
+
+    cu_softmac_macinfo_free(testmac);
+    cu_softmac_phyinfo_free(testphy);
+
+    testmac = 0;
+    testphy = 0;
+
+    printk("%s cheesyath stopped\n", __func__);
+}
+
 static void softmac_test(void)
 {
-    CU_SOFTMAC_MACLAYER_INFO *mac;
-    CU_SOFTMAC_PHYLAYER_INFO *phy;
-
-    mac = cu_softmac_layer_new_instance("cheesymac");
-    phy = cu_softmac_layer_new_instance("athphy");
-
-    mac->cu_softmac_mac_attach(mac->mac_private, phy);
-    phy->cu_softmac_phy_attach(phy->phy_private, mac);
+    printk("%s\n", __func__);
 }
+/* XXX end test code */
 
 static int __init softmac_core_init(void)
 {
