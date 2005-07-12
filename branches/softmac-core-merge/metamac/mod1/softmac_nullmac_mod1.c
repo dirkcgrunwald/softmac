@@ -86,9 +86,9 @@ static int my_rxhelper(void* mydata, void* priv, struct sk_buff* packet)
 	printk("rx func %s\n", the_nullmac.name);
 }			 
 			 
-static int my_txhelper(void* nif,void* priv, struct sk_buff* packet) {
+static int my_txhelper(void* mydata, struct sk_buff* packet, int intop) {
 	printk("tx func %s\n", the_nullmac.name);
-	multimac_tx(nif, priv, packet);
+	multimac_tx(mydata, packet, 0);
 }
 
 

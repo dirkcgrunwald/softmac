@@ -638,6 +638,37 @@ metamac_set_tx_func(char *name,
   return result;
 }
 
+static int
+metamac_netif_rxhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
+			 struct sk_buff* packet) {
+  CHEESYMAC_INSTANCE* inst = priv;
+ 
+  if (inst) {
+    /*
+     * Call the cheesymac tx function. The "intop" indicator
+     * is always zero for the particular netif implementation
+     * we're using -- in Linux the packet transmission is
+     * instigated by a softirq in the bottom half.
+     */
+
+    printk("MultiMAC: packet received\n");
+    int i;
+    for(i=0; i<inst->runningmacs; i++)
+    {
+    	if(inst->macs[i])
+	{
+	    int txresult = -1;
+	    if(inst->macs[i]!=NULL && inst->macs[i]->myrxfunc!=NULL)
+    	    {	
+	    	txresult = (inst->macs[i]->myrxfunc)(inst,packet,0);
+    	    }
+	}
+    }
+ 
+ }
+ return 0;
+}
+
 
 static int
 metamac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
@@ -788,15 +819,16 @@ static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst, struct sk_bu
 }
 
 
-static int multimac_tx(void* mydata,
-					      struct sk_buff* packet,
-					      int intop)
+static int multimac_tx(void* mydata, struct sk_buff* packet, int intop)
 {
   CHEESYMAC_INSTANCE* inst = mydata;
   int status = CU_SOFTMAC_MAC_TX_OK;
   int txresult = CU_SOFTMAC_PHY_SENDPACKET_OK;
 
   printk("a\n");
+
+  if (inst) printk("a1\n");
+  if (inst->myphy) printk("a2\n");
   
   if (inst && inst->myphy) {
   	printk("b\n");
@@ -1261,8 +1293,6 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     
     CU_SOFTMAC_PHY_HANDLE* phy;
     phy = cu_softmac_layer_new_instance("athphy");
-    phy = cu_softmac_macinfo_get_by_name("ath0");
-    
     inst->myphy = phy;
 
     // RR-Thing - Remove!    
@@ -1787,7 +1817,7 @@ cu_softmac_mac_set_rx_func_cheesymac(void* mydata,
   CHEESYMAC_INSTANCE* inst = mydata;
   if (inst) {
     write_lock(&(inst->mac_busy));  
-    inst->myrxfunc = rxfunc;
+    inst->myrxfunc = metamac_netif_rxhelper;
     inst->myrxfunc_priv = rxpriv;
     write_unlock(&(inst->mac_busy));  
   }
