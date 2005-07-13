@@ -1,1 +1,0 @@
-cmd_/root/softmac/trunk/metamac/mod1/softmac_multimac_mod1.ko := ld -m elf_i386 -r -o /root/softmac/trunk/metamac/mod1/softmac_multimac_mod1.ko /root/softmac/trunk/metamac/mod1/softmac_multimac_mod1.o /root/softmac/trunk/metamac/mod1/softmac_multimac_mod1.mod.o

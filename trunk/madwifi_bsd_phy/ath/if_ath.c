@@ -58,8 +58,8 @@ __FBSDID("$FreeBSD: src/sys/dev/ath/if_ath.c,v 1.76 2005/01/24 20:31:24 sam Exp 
 #include <linux/if_arp.h>
 #ifdef HAS_CU_SOFTMAC
 #include <linux/etherdevice.h>
-#include "../cu_softmac_api.h"
-#include "../cu_softmac_ath_api.h"
+#include "cu_softmac_api.h"
+#include "cu_softmac_ath_api.h"
 #endif
 
 #include <asm/uaccess.h>
@@ -328,10 +328,16 @@ typedef struct {
 } wlan_ng_prism2_header;
 
 #ifdef HAS_CU_SOFTMAC
+
+// register with SoftMAC 
+static void ath_cu_softmac_register(struct ath_softc* sc);
+// unregister from SoftMAC
+static void ath_cu_softmac_unregister(struct ath_softc* sc);
+
 // ath_tx_raw_start works like ath_tx_start except it doesn't
 // do encapsulation...
-static int	ath_tx_raw_start(struct net_device *, struct ieee80211_node *,
-			     struct ath_buf *, struct sk_buff *);
+static int ath_tx_raw_start(struct net_device *, struct ieee80211_node *,
+			    struct ath_buf *, struct sk_buff *);
 
 // ath_cu_softmac_handle_rx,txdone are used to handle packet rx
 // or txdone signals, either in the top half (set "intop" to 1)
@@ -362,45 +368,38 @@ static int ath_cu_softmac_getheadertype(struct ath_softc*,struct sk_buff*);
 static unsigned char ath_cu_softmac_getheadertype_cb(struct ath_softc*,struct sk_buff*);
 
 static int ath_cu_softmac_issoftmac(struct ath_softc* sc,struct sk_buff* skb);
-static unsigned char ath_cu_softmac_tag_cb(struct ath_softc* sc,struct ath_desc* ds,struct sk_buff* skb);
+static unsigned char ath_cu_softmac_tag_cb(struct ath_softc* sc,
+					   struct ath_desc* ds,
+					   struct sk_buff* skb);
 static struct sk_buff * ath_alloc_skb(u_int size, u_int align);
 
 /*
 **
-** The following functions are exported via pointers from the softmac
-** PHY layer device table.
+** Functions exported via pointers from the CU_SOFTMAC_PHYLAYER_INFO device table.
 **
 */
-static int
-cu_softmac_attach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* macinfo);
-/*
- * Tell the softmac PHY that we are leaving the building
- */
-static void
-cu_softmac_detach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv);
-static u_int64_t
-cu_softmac_get_time_ath(CU_SOFTMAC_PHY_HANDLE nfh);
-static void
-cu_softmac_set_time_ath(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t curtime);
-static void
-cu_softmac_schedule_work_asap_ath(CU_SOFTMAC_PHY_HANDLE nfh);
-static struct sk_buff*
-cu_softmac_alloc_skb_ath(CU_SOFTMAC_PHY_HANDLE nfh,int datalen);
-static void
-cu_softmac_free_skb_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb);
-static int
-cu_softmac_sendpacket_ath(CU_SOFTMAC_PHY_HANDLE nfh,
-			  int max_packets_inflight,
-			  struct sk_buff* skb);
-static int
-cu_softmac_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
-					int max_packets_inflight,
-					struct sk_buff* skb);
-static u_int32_t
-cu_softmac_get_duration_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb);
+static int cu_softmac_phy_attach_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* macinfo);
+static void cu_softmac_phy_detach_ath(CU_SOFTMAC_PHY_HANDLE nfh);
+static u_int64_t cu_softmac_phy_get_time_ath(CU_SOFTMAC_PHY_HANDLE nfh);
+static void cu_softmac_phy_set_time_ath(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t curtime);
+static void cu_softmac_phy_schedule_work_asap_ath(CU_SOFTMAC_PHY_HANDLE nfh);
+static struct sk_buff* cu_softmac_phy_alloc_skb_ath(CU_SOFTMAC_PHY_HANDLE nfh,int datalen);
+static void cu_softmac_phy_free_skb_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb);
+static int cu_softmac_phy_sendpacket_ath(CU_SOFTMAC_PHY_HANDLE nfh,
+					 int max_packets_inflight,
+					 struct sk_buff* skb);
+static int cu_softmac_phy_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
+						       int max_packets_inflight,
+						       struct sk_buff* skb);
+static u_int32_t cu_softmac_phy_get_duration_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb);
+static u_int32_t cu_softmac_phy_get_txlatency_ath(CU_SOFTMAC_PHY_HANDLE nfh);
 
-static u_int32_t
-cu_softmac_get_txlatency_ath(CU_SOFTMAC_PHY_HANDLE nfh);
+/*
+** Exported via pointers from the softmac CU_SOFTMAC_LAYER_INFO structure
+*/
+
+static void *cu_softmac_layer_new_instance_ath(void *layer_private);
+static void cu_softmac_layer_free_instance_ath(void *layer_private, void *instance);
 
 /*
 **
@@ -440,15 +439,22 @@ ath_attach(u_int16_t devid, struct net_device *dev)
 	ATH_INIT_TQUEUE(&sc->sc_radartq,ath_radar_tasklet,	dev);
 
 #ifdef HAS_CU_SOFTMAC
+	/*
+	 * softmac specific initialization
+	 */
 	ATH_INIT_TQUEUE(&sc->sc_cu_softmac_worktq,ath_cu_softmac_work_tasklet,dev);
 
 	atomic_set(&(sc->sc_cu_softmac_tx_packets_inflight),0);
-	memset(&(sc->sc_cu_softmac_mac),0,sizeof(CU_SOFTMAC_MACLAYER_INFO));
 	sc->sc_cu_softmac_mac_lock = RW_LOCK_UNLOCKED;
+	sc->sc_cu_softmac_defaultmac = cu_softmac_macinfo_alloc();
+	sc->sc_cu_softmac_mac = sc->sc_cu_softmac_defaultmac;
+	sc->sc_cu_softmac_phy = 0;
 	sc->sc_cu_softmac_txlatency = ATH_CU_SOFTMAC_DEFAULT_TXLATENCY;
 	sc->sc_cu_softmac_phocus_settletime = ATH_CU_SOFTMAC_DEFAULT_PHOCUS_SETTLETIME;
 	sc->sc_cu_softmac_wifictl0 = CU_SOFTMAC_WIFICTL0;
 	sc->sc_cu_softmac_wifictl1 = CU_SOFTMAC_WIFICTL1;
+
+	ath_cu_softmac_register(sc);
 #endif	
 
 	/*
@@ -872,6 +878,11 @@ ath_detach(struct net_device *dev)
 	ath_tx_cleanup(sc);
 	ath_hal_detach(sc->sc_ah);
 
+#ifdef HAS_CU_SOFTMAC
+	ath_cu_softmac_unregister(sc);
+	cu_softmac_macinfo_free(sc->sc_cu_softmac_defaultmac);
+#endif
+
 	/*
 	 * NB: can't reclaim these until after ieee80211_ifdetach
 	 * returns because we'll get called back to reclaim node
@@ -882,7 +893,6 @@ ath_detach(struct net_device *dev)
 #endif /* CONFIG_SYSCTL */
 	ath_rawdev_detach(sc);
 	unregister_netdev(dev);
-
 	return 0;
 }
 
@@ -6929,48 +6939,56 @@ void cu_softmac_ath_set_phocus_state(u_int16_t state,int16_t settle)
 #undef BOTH_EMPTY
 }
 
+/*
+ * 
+ */
 int
-cu_softmac_attach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* macinfo) {
+cu_softmac_phy_attach_ath(CU_SOFTMAC_PHY_HANDLE nfh,CU_SOFTMAC_MACLAYER_INFO* macinfo)
+{
+  printk("%s\n", __func__);
+    
   struct ath_softc* sc = (struct ath_softc*)nfh;
   int result = 0;
-  // Lock the MAC
-  printk(KERN_DEBUG "SoftMAC MADWIFI: About to attach MAC -- getting lock\n");
+  
+  cu_softmac_phy_detach_ath(nfh);
+  
+  /* lock the mac */
   write_lock(&(sc->sc_cu_softmac_mac_lock));
-  // detach previous MAC
-  if (sc->sc_cu_softmac_mac.cu_softmac_mac_detach) {
-    printk(KERN_DEBUG "SoftMAC MADWIFI: Attaching MAC -- detaching old MAC\n");
-    (sc->sc_cu_softmac_mac.cu_softmac_mac_detach)(&(sc->sc_cu_softmac_mac),sc->sc_cu_softmac_mac.mac_private,0);
-  }
-  memset(&(sc->sc_cu_softmac_mac),0,sizeof(CU_SOFTMAC_MACLAYER_INFO));
-  // copy new client info into place
-  // XXX check for invalid entires?
-  memcpy(&(sc->sc_cu_softmac_mac),macinfo,sizeof(CU_SOFTMAC_MACLAYER_INFO));
-  // Unlock the MAC
+  
+  /* get private copy of new MAC */
+  sc->sc_cu_softmac_mac = cu_softmac_macinfo_get(macinfo);
+  
+  /* unlock the mac */
   write_unlock(&(sc->sc_cu_softmac_mac_lock));
+  
   return result;
 }
 
 /*
- * Notification that the current SoftMAC MAC is detaching itself
+ * 
  */
 void
-cu_softmac_detach_mac_ath(CU_SOFTMAC_PHY_HANDLE nfh,void* mypriv) {
+cu_softmac_phy_detach_ath(CU_SOFTMAC_PHY_HANDLE nfh)
+{
+  printk("%s\n", __func__);
+
   // XXX perform a sanity check
   struct ath_softc *sc = (struct ath_softc*) nfh;
-  CU_SOFTMAC_MACLAYER_INFO mactmp;
 
-  printk(KERN_DEBUG "SoftMAC MADWIFI: About to detach MAC -- getting lock\n");
+  if (sc->sc_cu_softmac_mac == sc->sc_cu_softmac_defaultmac)
+      return;
+
   write_lock(&(sc->sc_cu_softmac_mac_lock));
-  printk(KERN_DEBUG "SoftMAC MADWIFI: About to detach MAC\n");
-  memcpy(&mactmp,&(sc->sc_cu_softmac_mac),sizeof(CU_SOFTMAC_MACLAYER_INFO));
-  memset(&(sc->sc_cu_softmac_mac),0,sizeof(CU_SOFTMAC_MACLAYER_INFO));
-  (mactmp.cu_softmac_mac_detach)(nfh,mactmp.mac_private,0);
-  printk(KERN_DEBUG "SoftMAC MADWIFI: Finished detaching MAC\n");
+
+  cu_softmac_macinfo_free(sc->sc_cu_softmac_mac);
+  sc->sc_cu_softmac_mac = sc->sc_cu_softmac_defaultmac;
+
   write_unlock(&(sc->sc_cu_softmac_mac_lock));
 }
 
 u_int64_t
-cu_softmac_get_time_ath(CU_SOFTMAC_PHY_HANDLE nfh) {
+cu_softmac_phy_get_time_ath(CU_SOFTMAC_PHY_HANDLE nfh)
+{
   struct ath_softc *sc = (struct ath_softc*) nfh;
   //struct net_device* dev = &(sc->sc_dev);
   struct ath_hal *ah = sc->sc_ah;
@@ -6979,7 +6997,8 @@ cu_softmac_get_time_ath(CU_SOFTMAC_PHY_HANDLE nfh) {
 }
 
 void
-cu_softmac_set_time_ath(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t curtime) {
+cu_softmac_phy_set_time_ath(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t curtime)
+{
   struct ath_softc *sc = (struct ath_softc*) nfh;
   //struct net_device* dev = &(sc->sc_dev);
   struct ath_hal *ah = sc->sc_ah;
@@ -6989,7 +7008,8 @@ cu_softmac_set_time_ath(CU_SOFTMAC_PHY_HANDLE nfh,u_int64_t curtime) {
 }
 
 void
-cu_softmac_schedule_work_asap_ath(CU_SOFTMAC_PHY_HANDLE nfh) {
+cu_softmac_phy_schedule_work_asap_ath(CU_SOFTMAC_PHY_HANDLE nfh)
+{
   struct ath_softc *sc = (struct ath_softc*) nfh;
   //struct net_device* dev = &(sc->sc_dev);
   //struct ath_hal *ah = sc->sc_ah;
@@ -7000,7 +7020,8 @@ cu_softmac_schedule_work_asap_ath(CU_SOFTMAC_PHY_HANDLE nfh) {
 }
 
 struct sk_buff*
-cu_softmac_alloc_skb_ath(CU_SOFTMAC_PHY_HANDLE nfh,int datalen) {
+cu_softmac_phy_alloc_skb_ath(CU_SOFTMAC_PHY_HANDLE nfh,int datalen)
+{
   struct sk_buff* newskb = 0;
   struct ath_softc *sc = (struct ath_softc*) nfh;
   //struct net_device* dev = &(sc->sc_dev);
@@ -7020,7 +7041,8 @@ cu_softmac_alloc_skb_ath(CU_SOFTMAC_PHY_HANDLE nfh,int datalen) {
 }
 
 void
-cu_softmac_free_skb_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
+cu_softmac_phy_free_skb_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb)
+{
   //struct ath_softc *sc = (struct ath_softc*) nfh;
   //struct net_device* dev = &(sc->sc_dev);
   //struct ath_hal *ah = sc->sc_ah;
@@ -7036,10 +7058,11 @@ cu_softmac_free_skb_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
  * Transmit a softmac frame.  On failure we reclaim the skbuff.
  */
 int
-cu_softmac_sendpacket_ath(CU_SOFTMAC_PHY_HANDLE nfh,
-		      int max_packets_inflight,
-		      struct sk_buff* skb) {
-  int result = cu_softmac_sendpacket_keepskbonfail_ath(nfh,max_packets_inflight,skb);
+cu_softmac_phy_sendpacket_ath(CU_SOFTMAC_PHY_HANDLE nfh,
+			      int max_packets_inflight,
+			      struct sk_buff* skb)
+{
+  int result = cu_softmac_phy_sendpacket_keepskbonfail_ath(nfh,max_packets_inflight,skb);
   if (0 != result) {
     dev_kfree_skb(skb);
     skb = 0;
@@ -7053,9 +7076,10 @@ cu_softmac_sendpacket_ath(CU_SOFTMAC_PHY_HANDLE nfh,
  * the packet.
  */
 int
-cu_softmac_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
-					int max_packets_inflight,
-					struct sk_buff* skb) {
+cu_softmac_phy_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
+					    int max_packets_inflight,
+					    struct sk_buff* skb)
+{
   //struct net_device *dev = ic->ic_dev;
   struct ath_softc *sc = (struct ath_softc*) nfh;
   struct net_device* dev = &(sc->sc_dev);
@@ -7141,7 +7165,8 @@ cu_softmac_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
 }
 
 u_int32_t
-cu_softmac_get_duration_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
+cu_softmac_phy_get_duration_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb)
+{
   struct ath_softc *sc = (struct ath_softc*) nfh;
   struct net_device* dev = &(sc->sc_dev);
   //struct ath_hal *ah = sc->sc_ah;
@@ -7150,7 +7175,8 @@ cu_softmac_get_duration_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb) {
 }
 
 static u_int32_t
-cu_softmac_get_txlatency_ath(CU_SOFTMAC_PHY_HANDLE nfh) {
+cu_softmac_phy_get_txlatency_ath(CU_SOFTMAC_PHY_HANDLE nfh)
+{
   struct ath_softc *sc = (struct ath_softc*) nfh;
   return sc->sc_cu_softmac_txlatency;
 }
@@ -7160,22 +7186,20 @@ cu_softmac_get_txlatency_ath(CU_SOFTMAC_PHY_HANDLE nfh) {
 //
 
 void
-cu_softmac_ath_get_phyinfo(struct net_device* dev,
-			   CU_SOFTMAC_PHYLAYER_INFO* phyinfo) {
-  if (phyinfo) {
-    phyinfo->cu_softmac_attach_mac = cu_softmac_attach_mac_ath;
-    phyinfo->cu_softmac_detach_mac = cu_softmac_detach_mac_ath;
-    phyinfo->cu_softmac_get_time = cu_softmac_get_time_ath;
-    phyinfo->cu_softmac_set_time = cu_softmac_set_time_ath;
-    phyinfo->cu_softmac_schedule_work_asap = cu_softmac_schedule_work_asap_ath;
-    phyinfo->cu_softmac_alloc_skb = cu_softmac_alloc_skb_ath;
-    phyinfo->cu_softmac_free_skb = cu_softmac_free_skb_ath;
-    phyinfo->cu_softmac_sendpacket = cu_softmac_sendpacket_ath;
-    phyinfo->cu_softmac_sendpacket_keepskbonfail = cu_softmac_sendpacket_keepskbonfail_ath;
-    phyinfo->cu_softmac_get_duration = cu_softmac_get_duration_ath;
-    phyinfo->cu_softmac_get_txlatency = cu_softmac_get_txlatency_ath;
-    phyinfo->phyhandle = dev->priv;
-  }
+cu_softmac_ath_set_phyinfo_functions(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
+{
+    // XXX lock?
+    phyinfo->cu_softmac_phy_attach = cu_softmac_phy_attach_ath;
+    phyinfo->cu_softmac_phy_detach = cu_softmac_phy_detach_ath;
+    phyinfo->cu_softmac_phy_get_time = cu_softmac_phy_get_time_ath;
+    phyinfo->cu_softmac_phy_set_time = cu_softmac_phy_set_time_ath;
+    phyinfo->cu_softmac_phy_schedule_work_asap = cu_softmac_phy_schedule_work_asap_ath;
+    phyinfo->cu_softmac_phy_alloc_skb = cu_softmac_phy_alloc_skb_ath;
+    phyinfo->cu_softmac_phy_free_skb = cu_softmac_phy_free_skb_ath;
+    phyinfo->cu_softmac_phy_sendpacket = cu_softmac_phy_sendpacket_ath;
+    phyinfo->cu_softmac_phy_sendpacket_keepskbonfail = cu_softmac_phy_sendpacket_keepskbonfail_ath;
+    phyinfo->cu_softmac_phy_get_duration = cu_softmac_phy_get_duration_ath;
+    phyinfo->cu_softmac_phy_get_txlatency = cu_softmac_phy_get_txlatency_ath;
 }
 
 void 
@@ -7546,16 +7570,16 @@ ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop) {
     return 0;
   }
   // check to see if we've got a softmac plugin, defer handling to it.
-  macpriv = sc->sc_cu_softmac_mac.mac_private;
-  if (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_rx) {
+  macpriv = sc->sc_cu_softmac_mac->mac_private;
+  if (sc->sc_cu_softmac_mac->cu_softmac_mac_packet_rx) {
     int rxresult = CU_SOFTMAC_MAC_NOTIFY_OK;
     if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
-      rxresult = (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_rx)(sc,macpriv,skb,intop);
+      rxresult = (sc->sc_cu_softmac_mac->cu_softmac_mac_packet_rx)(macpriv,skb,intop);
     }
     else if (ath_cu_softmac_issoftmac(sc,skb)) {
       skb = ath_cu_softmac_decapsulate(sc, skb);
       //printk(KERN_DEBUG "SoftMAC: Got softmac packet!\n");
-      rxresult = (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_rx)(sc,macpriv,skb,intop);
+      rxresult = (sc->sc_cu_softmac_mac->cu_softmac_mac_packet_rx)(macpriv,skb,intop);
       if (CU_SOFTMAC_MAC_NOTIFY_OK == rxresult) {
 	//printk(KERN_DEBUG "SoftMAC: packet handled -- not running again\n");
 	result = 0;
@@ -7822,7 +7846,7 @@ ath_cu_softmac_handle_txdone(struct net_device* dev, int intop) {
   int i;
   int result = 0;
   int status;
-  macpriv = sc->sc_cu_softmac_mac.mac_private;
+  macpriv = sc->sc_cu_softmac_mac->mac_private;
   /*
    * Process each active queue.
    */
@@ -7861,8 +7885,8 @@ ath_cu_softmac_handle_txdone(struct net_device* dev, int intop) {
 
 	if (read_trylock(&(sc->sc_cu_softmac_mac_lock))) {
 	  // XXX make a dummy MAC layer to avoid this check?
-	  if (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_tx_done) {
-	    int txdoneresult = (sc->sc_cu_softmac_mac.cu_softmac_mac_packet_tx_done)(dev,macpriv,skb,intop);
+	  if (sc->sc_cu_softmac_mac->cu_softmac_mac_packet_tx_done) {
+	    int txdoneresult = (sc->sc_cu_softmac_mac->cu_softmac_mac_packet_tx_done)(macpriv,skb,intop);
 	    if (CU_SOFTMAC_MAC_NOTIFY_OK == txdoneresult) {
 	      result = 0;
 	    }
@@ -7936,12 +7960,12 @@ ath_cu_softmac_work_tasklet(TQUEUE_ARG data) {
   }
   // See if we've got a "hook" function set -- run it if we do
   //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet\n");
-  macpriv = sc->sc_cu_softmac_mac.mac_private;
-  if (sc->sc_cu_softmac_mac.cu_softmac_mac_work) {
+  macpriv = sc->sc_cu_softmac_mac->mac_private;
+  if (sc->sc_cu_softmac_mac->cu_softmac_mac_work) {
     int workresult = CU_SOFTMAC_MAC_NOTIFY_OK;
     int needmark = 0;
     //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet: have a workfunc!\n");
-    workresult = (sc->sc_cu_softmac_mac.cu_softmac_mac_work)(sc,macpriv,0);
+    workresult = (sc->sc_cu_softmac_mac->cu_softmac_mac_work)(macpriv,0);
     if (CU_SOFTMAC_MAC_NOTIFY_RUNAGAIN == workresult) {
       //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet: rescheduling!\n");
       ATH_SCHEDULE_TQUEUE(&sc->sc_cu_softmac_worktq,&needmark);
@@ -8003,7 +8027,64 @@ ath_cu_softmac_getheadertype_cb(struct ath_softc* sc,struct sk_buff* skb) {
   return result;
 }
 
-EXPORT_SYMBOL(cu_softmac_ath_get_phyinfo);
+static CU_SOFTMAC_LAYER_INFO the_athphy;
+
+static void*
+cu_softmac_layer_new_instance_ath(void *layer_private)
+{
+    struct ath_softc *sc = layer_private;
+
+    // XXX does madwifi support multiple instances? one for now...
+    if (!sc->sc_cu_softmac_phy) {
+	CU_SOFTMAC_PHYLAYER_INFO *phyinfo = cu_softmac_phyinfo_alloc();
+
+	/* setup phyinfo */
+	strncpy(phyinfo->name, sc->sc_dev.name, CU_SOFTMAC_NAME_SIZE);
+	phyinfo->layer = &the_athphy;
+	phyinfo->phy_private = sc;
+	cu_softmac_ath_set_phyinfo_functions(phyinfo);
+
+	sc->sc_cu_softmac_phy = phyinfo;
+	
+	/* register with softmac */
+	cu_softmac_phyinfo_register(phyinfo);
+	
+	/* an instance doesn't hold a reference to itself */
+	cu_softmac_phyinfo_free(phyinfo);
+    }
+    return sc->sc_cu_softmac_phy;
+}
+
+
+/* Called when a Atheros CU_SOFTMAC_PHYLAYER_INFO structure is being deallocated */
+static void
+cu_softmac_layer_free_instance_ath(void *layer_private, void *phy)
+{
+    CU_SOFTMAC_PHYLAYER_INFO *phyinfo = phy;
+    struct ath_softc *sc = phyinfo->phy_private;
+    if (phyinfo == sc->sc_cu_softmac_phy)
+	cu_softmac_phy_detach_ath(sc);
+}
+
+static void
+ath_cu_softmac_register(struct ath_softc* sc)
+{
+    /* register the athphy layer with softmac */
+    strncpy(the_athphy.name, "athphy", CU_SOFTMAC_NAME_SIZE);
+    the_athphy.cu_softmac_layer_new_instance = cu_softmac_layer_new_instance_ath;
+    the_athphy.cu_softmac_layer_free_instance = cu_softmac_layer_free_instance_ath;
+    the_athphy.layer_private = sc;
+
+    cu_softmac_layer_register(&the_athphy);
+}
+
+static void
+ath_cu_softmac_unregister(struct ath_softc* sc)
+{
+    cu_softmac_layer_unregister(&the_athphy);
+}
+
+EXPORT_SYMBOL(cu_softmac_ath_set_phyinfo_functions);
 
 EXPORT_SYMBOL(cu_softmac_ath_set_cca_nf);
 EXPORT_SYMBOL(cu_softmac_ath_set_cw);

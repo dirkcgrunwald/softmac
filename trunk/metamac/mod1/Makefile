@@ -1,6 +1,6 @@
-obj-m += softmac_netif.o
+obj-m += softmac_nullmac_mod1.o softmac_nullmac_mod2.o
 
-DEPTH=..
+DEPTH=../..
 include ${PWD}/${DEPTH}/Makefile.inc
 
 all: linux_modules

@@ -40,7 +40,7 @@
 #include <linux/if_arp.h>
 #include <linux/if_ether.h>
 #include <linux/rtnetlink.h>
-#include "../cu_softmac_api.h"
+#include "cu_softmac_api.h"
 #include "softmac_netif.h"
 
 MODULE_LICENSE("GPL");

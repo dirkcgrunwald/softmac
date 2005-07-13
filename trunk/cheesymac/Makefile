@@ -1,26 +1,8 @@
 obj-m += softmac_cheesymac.o
-#obj-m += startstop.o
-#startstop-objs := start.o stop.o
 
-LINKS:=cu_softmac_api.h cu_softmac_ath_api.h softmac_netif.h
-KERNELSOURCE=/usr/src/linux
+DEPTH=..
+include ${PWD}/${DEPTH}/Makefile.inc
 
-install:
-	@echo Checking for symlinks
-	@for link in ${LINKS}; do \
-		if [ -h $$link ]; then \
-			(echo "Obmitting symlink") \
-		else \
-			(if [ $$link = "cu_softmac_api.h" ]; then \
-				(ln -s ../$$link .) \
-			elif [ $$link = "cu_softmac_ath_api.h" ]; then \
-				(ln -s ../madwifi_bsd_phy/$$link .) \
-			elif [ $$link = "softmac_netif.h" ]; then \
-				(ln -s ../linux_netif/$$link .) \
-			fi;) \
-		fi; \
-	done;
-	make -C ${KERNELSOURCE} SUBDIRS=${PWD} modules
-	
-clean:
-	@rm -f *.ko *.mod.c .*o.cmd
+all: linux_modules
+clean: linux_clean
+install: linux_install

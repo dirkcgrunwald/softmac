@@ -81,6 +81,17 @@ nullmac_mac_detach(void *me)
     return 0;
 }
 
+static int my_rxhelper(void* mydata, void* priv, struct sk_buff* packet) 
+			 {
+	printk("rx func %s\n", the_nullmac.name);
+}			 
+			 
+static int my_txhelper(void* mydata, struct sk_buff* packet, int intop) {
+	printk("tx func %s\n", the_nullmac.name);
+	multimac_tx(mydata, packet, 0);
+}
+
+
 /* create and return a new nullmac instance */
 static void *
 nullmac_new_instance (void *layer_priv)
@@ -100,6 +111,8 @@ nullmac_new_instance (void *layer_priv)
 	inst->macinfo = cu_softmac_macinfo_alloc();
 	inst->macinfo->mac_private = inst;
 	inst->macinfo->layer = &the_nullmac;
+	inst->macinfo->cu_softmac_mac_packet_rx = my_rxhelper;
+	inst->macinfo->cu_softmac_mac_packet_tx = my_txhelper;
 	snprintf(inst->macinfo->name, CU_SOFTMAC_NAME_SIZE, "%s%d", the_nullmac.name, inst->id);
 
 	/* override some macinfo functions */
@@ -143,7 +156,7 @@ softmac_nullmac_init(void)
     printk("%s\n", __func__);
 
     /* register the nullmac layer with softmac */
-    strncpy(the_nullmac.name, "nullmac", CU_SOFTMAC_NAME_SIZE);
+    strncpy(the_nullmac.name, "mac1", CU_SOFTMAC_NAME_SIZE);
     the_nullmac.cu_softmac_layer_new_instance = nullmac_new_instance;
     the_nullmac.cu_softmac_layer_free_instance = nullmac_free_instance;
     cu_softmac_layer_register(&the_nullmac);
