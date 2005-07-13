@@ -639,8 +639,9 @@ metamac_set_tx_func(char *name,
 }
 
 static int
-metamac_netif_rxhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
-			 struct sk_buff* packet) {
+metamac_netif_rxhelper(void* priv,
+		       struct sk_buff* packet,
+		       int intop) {
   CHEESYMAC_INSTANCE* inst = priv;
  
   if (inst) {
@@ -651,15 +652,18 @@ metamac_netif_rxhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
      * instigated by a softirq in the bottom half.
      */
 
-    printk("MultiMAC: packet received\n");
+    printk("MultiMAC: packet received %p %d\n", inst, inst->runningmacs);
     int i;
     for(i=0; i<inst->runningmacs; i++)
     {
+	printk("for1\n");
     	if(inst->macs[i])
 	{
+	    printk("if1\n");
 	    int txresult = -1;
 	    if(inst->macs[i]!=NULL && inst->macs[i]->myrxfunc!=NULL)
     	    {	
+		printk("if2\n");
 	    	txresult = (inst->macs[i]->myrxfunc)(inst,packet,0);
     	    }
 	}
@@ -1070,7 +1074,7 @@ static int cu_softmac_mac_packet_rx_cheesymac(void* mydata,
 	 * an attached rxfunc, otherwise whack the packet.
 	 */
 	if (inst->myrxfunc) {
-	  //printk(KERN_DEBUG "cheesymac: packet rx -- calling receive\n");
+	    printk(KERN_DEBUG "cheesymac: packet rx -- calling receive\n");
 	  (inst->myrxfunc)(inst->myrxfunc_priv, packet);
 	}
 	else { //if (inst->myphy->cu_softmac_free_skb) {
@@ -1272,7 +1276,8 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
 
     /* load up the function table so that other layers can communicate with us */
     cu_softmac_cheesymac_set_macinfo_functions(macinfo);
-    
+    macinfo->cu_softmac_mac_packet_rx = metamac_netif_rxhelper;
+
     /* finish macinfo setup */
     macinfo->layer = &the_cheesymac;
     macinfo->mac_private = inst;
@@ -1288,10 +1293,13 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     /* create and attach to our Linux network interface */
     cheesymac_create_and_attach_netif(inst);
     
-    CU_SOFTMAC_PHY_HANDLE* phy;
+    CU_SOFTMAC_PHYLAYER_INFO* phy;
     phy = cu_softmac_layer_new_instance("athphy");
     phy = cu_softmac_phyinfo_get_by_name("ath0");
     inst->myphy = phy;
+
+    phy->cu_softmac_phy_attach(phy->phy_private, macinfo);
+    printk("me: %p\n", inst);
 
     // RR-Thing - Remove!    
     currentmacname = kmalloc(10, GFP_KERNEL);
@@ -1815,7 +1823,8 @@ cu_softmac_mac_set_rx_func_cheesymac(void* mydata,
   CHEESYMAC_INSTANCE* inst = mydata;
   if (inst) {
     write_lock(&(inst->mac_busy));  
-    inst->myrxfunc = metamac_netif_rxhelper;
+    //inst->myrxfunc = metamac_netif_rxhelper;
+    inst->myrxfunc = rxfunc;
     inst->myrxfunc_priv = rxpriv;
     write_unlock(&(inst->mac_busy));  
   }
