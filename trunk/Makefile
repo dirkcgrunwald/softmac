@@ -4,8 +4,8 @@ SUBDIRS=cheesymac \
 	linux_netif \
 	mactime \
 	madwifi_bsd_phy \
-	metamac \
-	metamac/mod1 \
+	multimac \
+	multimac/mod1 \
 	nullmac 
 
 # every module should compile against this directory
