@@ -81,9 +81,10 @@ nullmac_mac_detach(void *me)
     return 0;
 }
 
-static int my_rxhelper(void* mydata, void* priv, struct sk_buff* packet) 
+static int my_rxhelper(void* mydata, struct sk_buff* packet, int intop)  
 			 {
 	printk("rx func %s\n", the_nullmac.name);
+	netif_rx(packet);
 }			 
 			 
 static int my_txhelper(void* mydata, struct sk_buff* packet, int intop) {
