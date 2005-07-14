@@ -656,20 +656,18 @@ metamac_netif_rxhelper(void* priv,
     int i;
     for(i=0; i<inst->runningmacs; i++)
     {
-	printk("for1\n");
     	if(inst->macs[i])
 	{
-	    printk("if1\n");
 	    int txresult = -1;
 	    if(inst->macs[i]!=NULL && inst->macs[i]->myrxfunc!=NULL)
     	    {	
-		printk("if2\n");
-	    	txresult = (inst->macs[i]->myrxfunc)(inst,packet,0);
+		struct sk_buff *skb = skb_copy(packet, GFP_ATOMIC);
+	    	txresult = (inst->macs[i]->myrxfunc)(inst->macs[i]->mac->mac_private, skb,0);
     	    }
 	}
     }
- 
  }
+ (inst->myphy->cu_softmac_phy_free_skb)(inst->myphy->phy_private, packet);
  return 0;
 }
 
@@ -1657,7 +1655,8 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
 		
 	      	// Create and fetch a new instance
 	      	void *p  = cu_softmac_layer_new_instance((inst->macs[i])->name);  
-		
+		cu_softmac_macinfo_get(p);
+
 		printk("a\n");
 		if(p!=NULL)
 		{
@@ -1665,6 +1664,9 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
 			printk("c\n");
 			(inst->macs[i])->myrxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_rx;
 			(inst->macs[i])->mytxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_tx;
+			(inst->macs[i])->mac->cu_softmac_mac_set_rx_func(((inst->macs[i])->mac)->mac_private,
+									 cu_softmac_netif_rx_packet,
+									 inst->netif);
 			printk("d\n");
 			inst->runningmacs++;
 

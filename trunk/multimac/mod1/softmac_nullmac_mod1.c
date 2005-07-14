@@ -45,6 +45,9 @@ typedef struct {
     CU_SOFTMAC_MACLAYER_INFO *macinfo;
     CU_SOFTMAC_PHYLAYER_INFO *phyinfo;
 
+    CU_SOFTMAC_MAC_RX_FUNC myrxfunc;
+    void *myrxfunc_priv;
+
     int id;
 } NULLMAC_INSTANCE;
 
@@ -81,10 +84,27 @@ nullmac_mac_detach(void *me)
     return 0;
 }
 
+static int
+nullmac_mac_set_rx_func(void *me, CU_SOFTMAC_MAC_RX_FUNC rxfunc, void* rxpriv)
+{
+    printk("%p %s\n", me, __func__);
+    NULLMAC_INSTANCE *inst = me;
+    if (inst && rxfunc) {
+	inst->myrxfunc = rxfunc;
+	inst->myrxfunc_priv = rxpriv;
+    } else {
+	printk("%s error\n", __func__);
+    }
+}
+
 static int my_rxhelper(void* mydata, struct sk_buff* packet, int intop)  
-			 {
-	printk("rx func %s\n", the_nullmac.name);
-	netif_rx(packet);
+{
+    NULLMAC_INSTANCE *inst = mydata;
+    printk("rx func %p %s\n", mydata, the_nullmac.name);
+    if (inst && inst->myrxfunc)
+	(inst->myrxfunc)(inst->myrxfunc_priv, packet);
+    else
+	printk("%s error\n", __func__);
 }			 
 			 
 static int my_txhelper(void* mydata, struct sk_buff* packet, int intop) {
@@ -114,6 +134,8 @@ nullmac_new_instance (void *layer_priv)
 	inst->macinfo->layer = &the_nullmac;
 	inst->macinfo->cu_softmac_mac_packet_rx = my_rxhelper;
 	inst->macinfo->cu_softmac_mac_packet_tx = my_txhelper;
+	inst->macinfo->cu_softmac_mac_set_rx_func = nullmac_mac_set_rx_func;
+
 	snprintf(inst->macinfo->name, CU_SOFTMAC_NAME_SIZE, "%s%d", the_nullmac.name, inst->id);
 
 	/* override some macinfo functions */
