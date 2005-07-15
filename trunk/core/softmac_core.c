@@ -477,21 +477,30 @@ cu_softmac_mac_work_dummy(void *mydata, int intop)
 }
 
 static int
-cu_softmac_mac_packet_rx_dummy(void *mydata, struct sk_buff* packet, int intop)
+cu_softmac_mac_packet_rx_dummy(void *mydata, struct sk_buff* skb, int intop)
 {
-    return 0;
+    if (skb) {
+	dev_kfree_skb_any(skb);
+    }
+    return CU_SOFTMAC_MAC_NOTIFY_OK;
 }
 
 static int
-cu_softmac_mac_packet_tx_done_dummy(void *mydata, struct sk_buff* packet, int intop)
+cu_softmac_mac_packet_tx_done_dummy(void *mydata, struct sk_buff* skb, int intop)
 {
-    return 0;
+    if (skb) {
+	dev_kfree_skb_any(skb);
+    }
+    return CU_SOFTMAC_MAC_NOTIFY_OK;
 }
 
 static int
-cu_softmac_mac_packet_tx_dummy(void *mydata, struct sk_buff* packet, int intop)
+cu_softmac_mac_packet_tx_dummy(void *mydata, struct sk_buff* skb, int intop)
 {
-    return 0;
+    if (skb) {
+	dev_kfree_skb_any(skb);
+    }
+    return CU_SOFTMAC_MAC_NOTIFY_OK;
 }
 
 static int
