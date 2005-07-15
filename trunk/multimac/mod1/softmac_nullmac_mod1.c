@@ -87,7 +87,6 @@ nullmac_mac_detach(void *me)
 static int
 nullmac_mac_set_rx_func(void *me, CU_SOFTMAC_MAC_RX_FUNC rxfunc, void* rxpriv)
 {
-    printk("%p %s\n", me, __func__);
     NULLMAC_INSTANCE *inst = me;
     if (inst && rxfunc) {
 	inst->myrxfunc = rxfunc;
@@ -100,7 +99,7 @@ nullmac_mac_set_rx_func(void *me, CU_SOFTMAC_MAC_RX_FUNC rxfunc, void* rxpriv)
 static int my_rxhelper(void* mydata, struct sk_buff* packet, int intop)  
 {
     NULLMAC_INSTANCE *inst = mydata;
-    printk("rx func %p %s\n", mydata, the_nullmac.name);
+    printk("rx func %s\n", the_nullmac.name);
     if (inst && inst->myrxfunc)
 	(inst->myrxfunc)(inst->myrxfunc_priv, packet);
     else

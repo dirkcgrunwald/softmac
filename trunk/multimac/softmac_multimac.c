@@ -1297,7 +1297,6 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     inst->myphy = phy;
 
     phy->cu_softmac_phy_attach(phy->phy_private, macinfo);
-    printk("me: %p\n", inst);
 
     // RR-Thing - Remove!    
     currentmacname = kmalloc(10, GFP_KERNEL);
@@ -1657,17 +1656,14 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
 	      	void *p  = cu_softmac_layer_new_instance((inst->macs[i])->name);  
 		cu_softmac_macinfo_get(p);
 
-		printk("a\n");
 		if(p!=NULL)
 		{
 			(inst->macs[i])->mac = p;
-			printk("c\n");
 			(inst->macs[i])->myrxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_rx;
 			(inst->macs[i])->mytxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_tx;
 			(inst->macs[i])->mac->cu_softmac_mac_set_rx_func(((inst->macs[i])->mac)->mac_private,
 									 cu_softmac_netif_rx_packet,
 									 inst->netif);
-			printk("d\n");
 			inst->runningmacs++;
 
 		}else{
