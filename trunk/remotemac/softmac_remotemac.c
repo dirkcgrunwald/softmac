@@ -145,7 +145,7 @@ remotemac_mac_set_netif_rx_func(void *me,
 static int
 remotemac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     struct remotemac_instance *inst = me; 
     struct ktund_packet_hdr *khdr = (struct ktund_packet_hdr *)skb->data;
 
@@ -205,7 +205,7 @@ remotemac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 static void
 remotemac_rx_tasklet(unsigned long data)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     struct remotemac_instance *inst = (struct remotemac_instance *)data;
     struct sk_buff *skb;
 
@@ -253,7 +253,7 @@ remotemac_rx_tasklet(unsigned long data)
 static int
 remotemac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     struct remotemac_instance *inst = me; 
     
     skb_queue_tail(&(inst->rxq), skb);
@@ -267,7 +267,7 @@ remotemac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 struct sk_buff *
 remotemac_alloc_skb(void *me, u_int len)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     struct remotemac_instance *inst = me;
     struct sk_buff *skb;
 

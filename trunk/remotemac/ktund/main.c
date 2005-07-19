@@ -109,7 +109,8 @@ ktund_tunnel_txskb(void *p, struct sk_buff *skb)
     ret = ktund_tunnel_tx(skb->data, skb->len);
     if (ret < 0 && ret != -EAGAIN)
 	printk(NAME ":%s error %d\n", __func__, -ret);
-    
+
+    kfree_skb(skb);
     return ret;
 }
 
