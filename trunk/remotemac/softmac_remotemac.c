@@ -87,8 +87,7 @@ static CU_SOFTMAC_LAYER_INFO the_remotemac;
 static int
 remotemac_mac_detach(void *me)
 {
-    printk("%s\n", __func__);
-
+    //printk("%s\n", __func__);
     struct remotemac_instance *inst = me;
     unsigned long flags;
 
@@ -106,8 +105,7 @@ remotemac_mac_detach(void *me)
 static int
 remotemac_mac_attach(void *me, CU_SOFTMAC_PHYLAYER_INFO *phyinfo)
 {
-    printk("%s\n", __func__);
-
+    //printk("%s\n", __func__);
     struct remotemac_instance *inst = me;
     unsigned long flags;
 
@@ -127,8 +125,7 @@ remotemac_mac_set_netif_rx_func(void *me,
 				CU_SOFTMAC_MAC_RX_FUNC rxfunc, 
 				void *rxpriv) 
 {
-    printk("%s\n", __func__);
-
+    //printk("%s\n", __func__);
     struct remotemac_instance *inst = me;
     unsigned long flags;
 
@@ -163,7 +160,7 @@ remotemac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 
 	/* remove control data from the packet */
 	skb_pull(skb, len);
-	
+
 	while (len > 0) {
 	    u_int8_t opc = *ctl;
 	    u_int8_t arg8;
@@ -212,7 +209,7 @@ remotemac_rx_tasklet(unsigned long data)
     while ( (skb = skb_dequeue(&inst->rxq)) ) {
 	struct remotemac_rx_header *hdr;
 	struct ktund_packet_hdr *khdr;
-	
+
 	int len = skb->len;
 	hdr = (struct remotemac_rx_header *) skb_push(skb, sizeof(struct remotemac_rx_header));
 	khdr = (struct ktund_packet_hdr *) skb_push(skb, sizeof(struct ktund_packet_hdr));
@@ -222,22 +219,22 @@ remotemac_rx_tasklet(unsigned long data)
 	khdr->data_len = len;
 
 	read_lock(&(inst->lock));
-	
+
 	hdr->crcerr_id = CU_SOFTMAC_REMOTE_RX_CRCERR;
 	hdr->crcerr = cu_softmac_ath_has_rx_crc_error(inst->phyinfo->phy_private, skb);
-	
+
 	hdr->channel_id = CU_SOFTMAC_REMOTE_RX_CHANNEL;
 	hdr->channel = cu_softmac_ath_get_rx_channel(inst->phyinfo->phy_private, skb);
 
 	hdr->rssi_id = CU_SOFTMAC_REMOTE_RX_RSSI;
 	hdr->rssi = cu_softmac_ath_get_rx_rssi(inst->phyinfo->phy_private, skb);
-	
+
 	hdr->rate_id = CU_SOFTMAC_REMOTE_RX_RATE;
 	hdr->rate = cu_softmac_ath_get_rx_bitrate(inst->phyinfo->phy_private, skb);
-	
+
 	hdr->mactime_id = CU_SOFTMAC_REMOTE_RX_TIME;
 	hdr->mactime = cu_softmac_ath_get_rx_time(inst->phyinfo->phy_private, skb);
-	
+
 	/* remote crc? */
 	//skb_trim(skb, skb->len - 4/*IEEE80211_CRC_LEN*/);
 
@@ -282,8 +279,7 @@ remotemac_alloc_skb(void *me, u_int len)
 static void *
 remotemac_new_instance (void *layer_priv)
 {
-    printk("%s\n", __func__);
-
+    //printk("%s\n", __func__);
     struct remotemac_instance *inst;
     void *ret = 0;
 
@@ -329,8 +325,7 @@ remotemac_new_instance (void *layer_priv)
 static void
 remotemac_free_instance (void *layer_priv, void *info)
 {
-    printk("%s\n", __func__);
-
+    //printk("%s\n", __func__);
     CU_SOFTMAC_MACLAYER_INFO *macinfo = info;
     struct remotemac_instance *inst = macinfo->mac_private;
     remotemac_mac_detach(inst);
@@ -342,8 +337,7 @@ remotemac_free_instance (void *layer_priv, void *info)
 static int __init 
 softmac_remotemac_init(void)
 {
-    printk("%s\n", __func__);
-
+    //printk("%s\n", __func__);
     /* register the remotemac layer with softmac */
     strncpy(the_remotemac.name, remotemac_name, CU_SOFTMAC_NAME_SIZE);
     the_remotemac.cu_softmac_layer_new_instance = remotemac_new_instance;
@@ -356,8 +350,7 @@ softmac_remotemac_init(void)
 static void __exit 
 softmac_remotemac_exit(void)
 {
-    printk("%s\n", __func__);
-
+    //printk("%s\n", __func__);
     /* tell softmac we're leaving */
     cu_softmac_layer_unregister((CU_SOFTMAC_LAYER_INFO *)&the_remotemac);
 }

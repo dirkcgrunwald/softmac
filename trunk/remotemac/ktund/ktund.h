@@ -1,5 +1,5 @@
 
-#define KTUND_SYNC 0x4B54414E /* "KTUN" */
+#define KTUND_SYNC 0x4B54554E /* "KTUN" */
 
 struct ktund_packet_hdr {
     unsigned int    sync;     /* all packets start with KTUND_SYNC */
