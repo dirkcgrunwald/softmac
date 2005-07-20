@@ -578,7 +578,7 @@ cu_softmac_layer_register(CU_SOFTMAC_LAYER_INFO *info)
     hlist_for_each(p, head) {
 	CU_SOFTMAC_LAYER_INFO *l = hlist_entry(p, CU_SOFTMAC_LAYER_INFO, name_hlist);
 	if (!strncmp(l->name, info->name, CU_SOFTMAC_NAME_SIZE)) {
-	    printk("%s warning: layer %s already registered\n", __func__, info->name);
+	    printk("%s error: layer %s already registered\n", __func__, info->name);
 	    return;
 	}
     }
@@ -627,10 +627,10 @@ cu_softmac_phyinfo_alloc(void)
 void
 cu_softmac_phyinfo_free(CU_SOFTMAC_PHYLAYER_INFO *phyinfo)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     if (phyinfo && atomic_dec_and_test(&phyinfo->refcnt)) {
-	printk("%s freed\n", __func__);
+	printk("%s freed %s\n", __func__, phyinfo->name);
 	if (phyinfo->phy_private)
 	    cu_softmac_layer_free_instance(phyinfo);
 	kfree(phyinfo);
@@ -667,7 +667,7 @@ cu_softmac_phyinfo_register(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
     hlist_for_each(p, head) {
 	CU_SOFTMAC_PHYLAYER_INFO *m = hlist_entry(p, CU_SOFTMAC_PHYLAYER_INFO, name_hlist);
 	if (!strncmp(m->name, phyinfo->name, CU_SOFTMAC_NAME_SIZE)) {
-	    printk("%s warning: phy %s already registered\n", __func__, m->name);
+	    printk("%s error: phy %s already registered\n", __func__, m->name);
 	    return;
 	}
     }
@@ -754,10 +754,10 @@ cu_softmac_macinfo_alloc(void)
 void
 cu_softmac_macinfo_free(CU_SOFTMAC_MACLAYER_INFO *macinfo)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     if (macinfo && atomic_dec_and_test(&macinfo->refcnt)) {
-	printk("%s freed\n", __func__);
+	printk("%s freed %s\n", __func__, macinfo->name);
 	if (macinfo->mac_private)
 	    cu_softmac_layer_free_instance(macinfo);
 	kfree(macinfo);
@@ -793,7 +793,7 @@ cu_softmac_macinfo_register(CU_SOFTMAC_MACLAYER_INFO* macinfo)
     hlist_for_each(p, head) {
 	CU_SOFTMAC_MACLAYER_INFO *m = hlist_entry(p, CU_SOFTMAC_MACLAYER_INFO, name_hlist);
 	if (!strncmp(m->name, macinfo->name, CU_SOFTMAC_NAME_SIZE)) {
-	    printk("%s warning: mac %s already registered\n", __func__, m->name);
+	    printk("%s error: mac %s already registered\n", __func__, m->name);
 	    return;
 	}
     }
