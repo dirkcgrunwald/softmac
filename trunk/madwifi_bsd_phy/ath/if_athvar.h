@@ -171,6 +171,9 @@ typedef STAILQ_HEAD(, ath_buf) ath_bufhead;
 struct ath_hal;
 struct ath_desc;
 struct proc_dir_entry;
+#ifdef HAS_CU_SOFTMAC
+struct cu_softmac_mac_instance;
+#endif
 
 /*
  * Data transmit queue state.  One of these exists for each
@@ -361,6 +364,7 @@ struct ath_softc {
   CU_SOFTMAC_MACLAYER_INFO *sc_cu_softmac_mac;
   CU_SOFTMAC_MACLAYER_INFO *sc_cu_softmac_defaultmac;
   CU_SOFTMAC_PHYLAYER_INFO *sc_cu_softmac_phy;
+  struct cu_softmac_athmac_instance *sc_cu_softmac_mac_inst;
   /*
    * Sometimes, e.g. when we are detaching a particular MAC layer,
    * we want to make sure that we've got exclusive access to the
@@ -369,6 +373,7 @@ struct ath_softc {
   rwlock_t             sc_cu_softmac_mac_lock;
 #endif
 };
+
 
 #ifdef HAS_CU_SOFTMAC
 struct cu_softmac_header {
@@ -382,6 +387,20 @@ struct cu_softmac_header {
   //u_int8_t wifiseqctl[2];
 } __attribute__((__packed__));
 
+
+struct cu_softmac_athmac_instance {
+    CU_SOFTMAC_MACLAYER_INFO *macinfo;
+    CU_SOFTMAC_PHYLAYER_INFO *phyinfo;
+    CU_SOFTMAC_PHYLAYER_INFO *defaultphy;
+    
+    CU_SOFTMAC_MAC_RX_FUNC netif_rx;
+    void *netif_rx_priv;
+
+    int id;
+
+    rwlock_t lock;
+};
+
 enum {
   CU_SOFTMAC_WIFICTL0 = 0xEE,
   CU_SOFTMAC_WIFICTL1 = 0x08,
@@ -393,20 +412,29 @@ enum {
 
 // Offsets into the "cb" field of the skbuff for indicating
 // phy layer tx/rx properties
+/* ieee80211_cb is defined in ieee80211_proto.h and is
+ * two pointers, a byte, and an int (14 bytes) */
+#define ATH_CU_SOFTMAC_CB_BASE sizeof(struct ieee80211_cb) 
 enum {
-  ATH_CU_SOFTMAC_CB_RATE = 0,
-  ATH_CU_SOFTMAC_CB_TXINTR = 1,
-  ATH_CU_SOFTMAC_CB_HAL_PKT_TYPE = 2,
-  ATH_CU_SOFTMAC_CB_HEADER_TYPE = 3,
-  ATH_CU_SOFTMAC_CB_RX_CRCERR = 4,
-  ATH_CU_SOFTMAC_CB_RXTSF0 = 5,
-  ATH_CU_SOFTMAC_CB_RXTSF1 = 6,
-  ATH_CU_SOFTMAC_CB_RXTSF2 = 7,
-  ATH_CU_SOFTMAC_CB_RXTSF3 = 8,
-  ATH_CU_SOFTMAC_CB_RXTSF4 = 9,
-  ATH_CU_SOFTMAC_CB_RXTSF5 = 10,
-  ATH_CU_SOFTMAC_CB_RXTSF6 = 11,
-  ATH_CU_SOFTMAC_CB_RXTSF7 = 12,
+  ATH_CU_SOFTMAC_CB_RATE = ATH_CU_SOFTMAC_CB_BASE + 0,
+  ATH_CU_SOFTMAC_CB_TXINTR = ATH_CU_SOFTMAC_CB_BASE + 1,
+  ATH_CU_SOFTMAC_CB_HAL_PKT_TYPE = ATH_CU_SOFTMAC_CB_BASE + 2,
+  ATH_CU_SOFTMAC_CB_HEADER_TYPE = ATH_CU_SOFTMAC_CB_BASE + 3,
+  ATH_CU_SOFTMAC_CB_RX_CRCERR = ATH_CU_SOFTMAC_CB_BASE + 4,
+  ATH_CU_SOFTMAC_CB_RX_RSSI = ATH_CU_SOFTMAC_CB_BASE + 5,
+  ATH_CU_SOFTMAC_CB_RX_CHANNEL = ATH_CU_SOFTMAC_CB_BASE + 6,
+  ATH_CU_SOFTMAC_CB_RX_TSF0 = ATH_CU_SOFTMAC_CB_BASE + 7,
+  ATH_CU_SOFTMAC_CB_RX_TSF1 = ATH_CU_SOFTMAC_CB_BASE + 8,
+  ATH_CU_SOFTMAC_CB_RX_TSF2 = ATH_CU_SOFTMAC_CB_BASE + 9,
+  ATH_CU_SOFTMAC_CB_RX_TSF3 = ATH_CU_SOFTMAC_CB_BASE + 10,
+  ATH_CU_SOFTMAC_CB_RX_TSF4 = ATH_CU_SOFTMAC_CB_BASE + 11,
+  ATH_CU_SOFTMAC_CB_RX_TSF5 = ATH_CU_SOFTMAC_CB_BASE + 12,
+  ATH_CU_SOFTMAC_CB_RX_TSF6 = ATH_CU_SOFTMAC_CB_BASE + 13,
+  ATH_CU_SOFTMAC_CB_RX_TSF7 = ATH_CU_SOFTMAC_CB_BASE + 14,
+  ATH_CU_SOFTMAC_CB_RX_BF0 = ATH_CU_SOFTMAC_CB_BASE + 15,
+  ATH_CU_SOFTMAC_CB_RX_BF1 = ATH_CU_SOFTMAC_CB_BASE + 16,
+  ATH_CU_SOFTMAC_CB_RX_BF2 = ATH_CU_SOFTMAC_CB_BASE + 17,
+  ATH_CU_SOFTMAC_CB_RX_BF3 = ATH_CU_SOFTMAC_CB_BASE + 18,
 };
 
 enum {

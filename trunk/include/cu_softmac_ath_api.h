@@ -61,15 +61,16 @@ void cu_softmac_ath_set_tx_bitrate(void* mydata,
 				   struct sk_buff* packet,
 				   unsigned char rate);
 
-unsigned char cu_softmac_ath_get_rx_bitrate(void* mydata, struct sk_buff* packet);
+u_int8_t cu_softmac_ath_get_rx_bitrate(void* mydata, struct sk_buff* packet);
 
 void cu_softmac_ath_require_txdone_interrupt(void* mydata, 
 					     struct sk_buff* packet,
 					     int require_interrupt);
 
 u_int64_t cu_softmac_ath_get_rx_time(void* mydata, struct sk_buff* packet);
-
-int cu_softmac_ath_has_rx_crc_error(void* mydata, struct sk_buff* packet);
+u_int8_t cu_softmac_ath_get_rx_rssi(void* mydata, struct sk_buff* packet);
+u_int8_t cu_softmac_ath_get_rx_channel(void* mydata, struct sk_buff* packet);
+u_int8_t cu_softmac_ath_has_rx_crc_error(void* mydata, struct sk_buff* packet);
 
 
 enum {

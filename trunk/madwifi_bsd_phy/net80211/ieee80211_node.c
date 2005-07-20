@@ -320,8 +320,11 @@ ieee80211_next_scan(struct ieee80211com *ic)
 
 	chan = ic->ic_bss->ni_chan;
 	do {
+	    /* disable channel scanning for SoftMAC */
+#if HAS_CU_SOFTMAC 	    
 		if (++chan > &ic->ic_channels[IEEE80211_CHAN_MAX])
 			chan = &ic->ic_channels[0];
+#endif
 		if (isset(ic->ic_chan_scan, ieee80211_chan2ieee(ic, chan))) {
 			clrbit(ic->ic_chan_scan, ieee80211_chan2ieee(ic, chan));
 			IEEE80211_DPRINTF(ic, IEEE80211_MSG_SCAN,
