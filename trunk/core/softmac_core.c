@@ -687,7 +687,7 @@ cu_softmac_phyinfo_unregister(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 {
     struct hlist_head *head;
     struct hlist_node *p;
-
+    
     head = softmac_phyinfo_hash(phyinfo->name);
     hlist_for_each(p, head) {
 	CU_SOFTMAC_PHYLAYER_INFO *m = hlist_entry(p, CU_SOFTMAC_PHYLAYER_INFO, name_hlist);
@@ -709,8 +709,8 @@ CU_SOFTMAC_PHYLAYER_INFO *
 cu_softmac_phyinfo_get(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 {   
     //printk("%s\n", __func__);
-
-    atomic_inc(&phyinfo->refcnt);
+    if (phyinfo)
+	atomic_inc(&phyinfo->refcnt);
     return phyinfo;
 }
 
@@ -835,8 +835,8 @@ CU_SOFTMAC_MACLAYER_INFO *
 cu_softmac_macinfo_get(CU_SOFTMAC_MACLAYER_INFO *macinfo)
 {
     //printk("%s\n", __func__);
-
-    atomic_inc(&macinfo->refcnt);
+    if (macinfo)
+	atomic_inc(&macinfo->refcnt);
     return macinfo;
 }
 

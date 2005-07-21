@@ -130,10 +130,14 @@ remotemac_mac_set_netif_rx_func(void *me,
     unsigned long flags;
 
     write_lock_irqsave(&(inst->lock), flags);
-
-    inst->netif_rx = rxfunc;
-    inst->netif_rx_priv = rxpriv;
-
+    // rxpriv == 0 is true when ktund is the caller
+    // this is a hack to prevent others (multimac) from
+    // setting netif_rx to something else
+    if (rxpriv == 0) {
+	inst->netif_rx = rxfunc;
+	inst->netif_rx_priv = rxpriv;
+	//printk("%s set %p\n", __func__, rxfunc);
+    }
     write_unlock_irqrestore(&(inst->lock), flags);
 
     return 0;
@@ -148,6 +152,13 @@ remotemac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 
     // assume intop == 0 for linux
     BUG_ON(intop);
+
+    if (khdr->sync != KTUND_SYNC) {
+	/* packet not remote mac format */
+	//printk("%s not remotemac format\n", __func__);
+	kfree_skb(skb);
+	return 0;
+    }
 
     skb_pull(skb, sizeof(struct ktund_packet_hdr));    
 
@@ -169,11 +180,11 @@ remotemac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 	    ctl += 1;
 	    len -= 1;
 
-	    printk("opc %d\n", (int)opc);
+	    //printk("opc %d\n", (int)opc);
 
 	    switch (opc) {
 	    case CU_SOFTMAC_REMOTE_TX_NOOP:
-		printk("remote tx noop\n");
+		//printk("remote tx noop\n");
 		break;
 	    case CU_SOFTMAC_REMOTE_TX_RATE:
 		/* set the rate for this packet */

@@ -395,6 +395,10 @@ static int cu_softmac_phy_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh
 static u_int32_t cu_softmac_phy_get_duration_ath(CU_SOFTMAC_PHY_HANDLE nfh,struct sk_buff* skb);
 static u_int32_t cu_softmac_phy_get_txlatency_ath(CU_SOFTMAC_PHY_HANDLE nfh);
 
+static int ath_cu_softmac_athmac_start(struct sk_buff* skb, struct net_device *dev);
+static int cu_softmac_mac_packet_tx_ath(void *me, struct sk_buff* skb, int intop);
+static int cu_softmac_mac_packet_rx_ath(void *me, struct sk_buff* skb, int intop);
+
 static CU_SOFTMAC_LAYER_INFO the_athmac; // atheros 802.11 mac
 static CU_SOFTMAC_LAYER_INFO the_athphy; // atheros softmac phy
 /*
@@ -8131,8 +8135,10 @@ static int
 ath_cu_softmac_athmac_start(struct sk_buff* skb, struct net_device *dev)
 {
     //printk("%s\n", __func__);
+    int ret;
     struct ath_softc *sc = dev->priv;
-    cu_softmac_mac_packet_tx_ath(sc, skb, 0);
+    ret = cu_softmac_mac_packet_tx_ath(sc, skb, 0);
+    return ret;
 }
 
 static int
@@ -8154,7 +8160,8 @@ cu_softmac_mac_packet_rx_ath(void *me, struct sk_buff* skb, int intop)
 
     if (!bf) {
 	printk("%s error bf == 0\n", __func__);
-	return 0;
+	dev_kfree_skb(skb);
+	return CU_SOFTMAC_MAC_NOTIFY_OK;
     }
 
     struct ieee80211_node *ni;

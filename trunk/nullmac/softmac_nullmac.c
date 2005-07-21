@@ -67,6 +67,7 @@ static CU_SOFTMAC_LAYER_INFO the_nullmac;
 static int
 nullmac_mac_attach(void *me, CU_SOFTMAC_PHYLAYER_INFO *phyinfo)
 {
+    //printk("%s\n", __func__);
     struct nullmac_instance *inst = me;
     int ret = -1;
     unsigned long flags;

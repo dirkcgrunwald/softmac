@@ -72,7 +72,7 @@ typedef struct MACS_t {
 	*
 	*/
 
-	char *name;
+	char name[CU_SOFTMAC_NAME_SIZE];
 			
 	rwlock_t mac_busy;
   
@@ -82,6 +82,7 @@ typedef struct MACS_t {
 	CU_SOFTMAC_MACLAYER_INFO* mac;
 
 } MAC_INSTANCE;
+#define MULTIMAC_MAX_MACS 10
 
 /**
  * @brief This is the structure containing all of the state information
@@ -103,6 +104,8 @@ typedef struct CHEESYMAC_INSTANCE_t {
    * XXX turn this into a read/write spinlock?
    */
   CU_SOFTMAC_PHYLAYER_INFO *myphy;
+
+  CU_SOFTMAC_PHYLAYER_INFO *multimac_fake_phy;
 
   /**
    * @brief Pointer to macinfo structure representing this MAC instance
@@ -184,8 +187,8 @@ typedef struct CHEESYMAC_INSTANCE_t {
   int maxinflight;
 
   int runningmacs;
-  char *names[10];
-  MAC_INSTANCE* macs[10];
+  char *names[MULTIMAC_MAX_MACS];
+  MAC_INSTANCE* macs[MULTIMAC_MAX_MACS];
 
   /*
    * The cheesymac uses Linux sk_buff queues when it needs
@@ -588,11 +591,11 @@ metamac_set_rx_func(char *name,
     write_lock(&(inst->mac_busy));
     
     int i;
-    for(i=0; i<inst->runningmacs; i++)
+    for(i=0; i<MULTIMAC_MAX_MACS; i++)
     {
         if(inst->macs[i])
 	{
-		if(strncmp(name, inst->macs[i]->name, sizeof(name))==0)
+		if(strncmp(name, inst->macs[i]->name, CU_SOFTMAC_NAME_SIZE)==0)
 		{
 			if(rxfunc)
 				inst->myrxfunc = rxfunc;
@@ -619,11 +622,11 @@ metamac_set_tx_func(char *name,
     write_lock(&(inst->mac_busy));
     
     int i;
-    for(i=0; i<inst->runningmacs; i++)
+    for(i=0; i<MULTIMAC_MAX_MACS; i++)
     {
     	if(inst->macs[i])
 	{
-		if(strncmp(name, inst->macs[i]->name, sizeof(currentmacname))==0)
+		if(strncmp(name, inst->macs[i]->name, CU_SOFTMAC_NAME_SIZE)==0)
 		{
 			//if(txfunc)
 			//	inst->mytxfunc = txfunc;
@@ -652,9 +655,9 @@ metamac_netif_rxhelper(void* priv,
      * instigated by a softirq in the bottom half.
      */
 
-    printk("MultiMAC: packet received %p %d\n", inst, inst->runningmacs);
+      //printk("MultiMAC: packet received %p %d\n", inst, inst->runningmacs);
     int i;
-    for(i=0; i<inst->runningmacs; i++)
+    for(i=0; i<MULTIMAC_MAX_MACS; i++)
     {
     	if(inst->macs[i])
 	{
@@ -684,13 +687,27 @@ metamac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
      * we're using -- in Linux the packet transmission is
      * instigated by a softirq in the bottom half.
      */
+      int i;
+      int txresult;
 
+      for (i=0; i<MULTIMAC_MAX_MACS; i++) {
+	  if (inst->macs[i] && inst->macs[i]->mytxfunc) {
+	      struct sk_buff *skb = skb_copy(packet, GFP_ATOMIC);
+	      txresult = (inst->macs[i]->mytxfunc)((inst->macs[i])->mac->mac_private,skb,0);
+	  }
+      } 
+      dev_kfree_skb(packet);
+  }
+  return 0;
+}
+
+#if 0
     int i;
-    for(i=0; i<inst->runningmacs; i++)
+    for(i=0; i<MULTIMAC_MAX_MACS->; i++)
     {
     	if(inst->macs[i])
 	{
-		if(strncmp(currentmacname, inst->macs[i]->name, sizeof(currentmacname))==0)
+		if(strncmp(currentmacname, (inst->macs[i])->name, CU_SOFTMAC_NAME_SIZE)==0)
     			break;
 	}
     }
@@ -698,18 +715,20 @@ metamac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
     int txresult = -1;
     if(inst->macs[i]!=NULL && inst->macs[i]->mytxfunc!=NULL)
     {	
-	txresult = (inst->macs[i]->mytxfunc)(inst,packet,0);
+	txresult = (inst->macs[i]->mytxfunc)((inst->macs[i])->mac->mac_private,packet,0);
     }else
     	printk("Autsch!\n");
 
-// RR Code
-	if(strncmp(currentmacname, "mac1", sizeof(currentmacname))==0)
-		sprintf(currentmacname, "mac2");
-	else
-		sprintf(currentmacname, "mac1");
-	
+    // RR Code
+    if (inst->macs[0] && inst->macs[1]) {
+	if (!strncmp(currentmacname, (inst->macs[0])->name, CU_SOFTMAC_NAME_SIZE)) {
+	    strncpy(currentmacname, (inst->macs[1])->name, CU_SOFTMAC_NAME_SIZE);
+	} else {
+	    strncpy(currentmacname, (inst->macs[0])->name, CU_SOFTMAC_NAME_SIZE);
+	}
+    }
 //txresult = cu_softmac_mac_packet_tx_cheesymac(inst,packet,0);
-	
+
     if (CU_SOFTMAC_MAC_TX_OK != txresult)
     {
       dev_kfree_skb(packet);
@@ -717,6 +736,7 @@ metamac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
  }
  return 0;
 }
+#endif
 
 /*
 ** SoftMAC Netif stuff
@@ -820,17 +840,32 @@ static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst, struct sk_bu
   }
 }
 
+static struct sk_buff* multimac_phy_alloc_skb(void *mydata, int len)
+{
+    CHEESYMAC_INSTANCE* inst = mydata;
+    CU_SOFTMAC_PHYLAYER_INFO *phy;
+    struct sk_buff *skb;
 
-static int multimac_tx(void* mydata, struct sk_buff* packet, int intop)
+    read_lock(&(inst->mac_busy));
+
+    phy = inst->myphy;
+    skb = phy->cu_softmac_phy_alloc_skb(phy->phy_private, len);
+
+    read_unlock(&(inst->mac_busy));
+
+    return skb;
+}
+
+static int multimac_phy_sendpacket(void* mydata, int max_inflight, struct sk_buff* packet)
 {
   CHEESYMAC_INSTANCE* inst = mydata;
   int status = CU_SOFTMAC_MAC_TX_OK;
   int txresult = CU_SOFTMAC_PHY_SENDPACKET_OK;
 
-  printk("a\n");
+  //printk("a\n");
   
   if (inst && inst->myphy) {
-  	printk("b\n");
+      //printk("b\n");
     read_lock(&(inst->mac_busy));
     /*
      * Check to see if we're in the top half or bottom half, i.e. are
@@ -1285,6 +1320,13 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     inst->my_procfs_root = cheesymac_procfsroot_handle;
     cheesymac_make_procfs_entries(inst);
 
+    /* fake phy that multimac attaches to mac layers */
+    inst->multimac_fake_phy = cu_softmac_phyinfo_alloc();
+    inst->multimac_fake_phy->phy_private = inst;
+    snprintf(inst->multimac_fake_phy->name, CU_SOFTMAC_NAME_SIZE, "%s_fake_phy", macinfo->name);
+    inst->multimac_fake_phy->cu_softmac_phy_sendpacket = multimac_phy_sendpacket;
+    inst->multimac_fake_phy->cu_softmac_phy_alloc_skb = multimac_phy_alloc_skb;
+    
     /* release write lock */
     write_unlock(&(inst->mac_busy));
 
@@ -1292,14 +1334,21 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     cheesymac_create_and_attach_netif(inst);
     
     CU_SOFTMAC_PHYLAYER_INFO* phy;
-    phy = cu_softmac_layer_new_instance("athphy");
-    phy = cu_softmac_phyinfo_get_by_name("ath0");
-    inst->myphy = phy;
+    phy = cu_softmac_phyinfo_get( cu_softmac_layer_new_instance("athphy") );
 
+    if (!phy) {
+	printk("%s error: couldn't get phy instance!\n", __func__);
+	return 0;
+    }
+
+    write_lock(&(inst->mac_busy));
+
+    inst->myphy = phy;
     phy->cu_softmac_phy_attach(phy->phy_private, macinfo);
+    write_unlock(&(inst->mac_busy));
 
     // RR-Thing - Remove!    
-    currentmacname = kmalloc(10, GFP_KERNEL);
+    currentmacname = kmalloc(CU_SOFTMAC_NAME_SIZE, GFP_KERNEL);
     sprintf(currentmacname, "mac1");
   }
   else {
@@ -1347,7 +1396,8 @@ static void cheesymac_destroy_instance(void* mypriv)
 	
 	inst->mymac = 0;
 	inst->myphy = 0;
-	
+	cu_softmac_phyinfo_free(inst->multimac_fake_phy);
+
 	write_unlock(&(inst->mac_busy));
 
 	kfree(inst);
@@ -1529,9 +1579,7 @@ cheesymac_inst_read_proc(char *page, char **start, off_t off,
       int i;
       sprintf(layers, "\0");
       
-      //for(i=0; i<inst->runningmacs; i++)
-      //{
-      for(i=0; i<10; i++)
+      for(i=0; i<MULTIMAC_MAX_MACS; i++)
       {
       	if(inst->macs[i]!=NULL)
 	{
@@ -1635,80 +1683,83 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       inst->maxinflight = intval;
       write_unlock(&(inst->mac_busy));
       break;
-     case CHEESYMAC_INST_PROC_ADDMAC:
-      write_lock(&(inst->mac_busy));
-      
-      int i;
-      int success=0;
-      
-      for(i=0; i<10; i++)
-      {
-      	if(inst->macs[i]==NULL)
+    case CHEESYMAC_INST_PROC_ADDMAC:
 	{
-		printk("Found slot. Adding mac layer %d.\n", result);
-      
-	      	inst->macs[i] = kmalloc(sizeof(MAC_INSTANCE), GFP_KERNEL);
-		inst->macs[i]->name = kmalloc(64, GFP_KERNEL);
-              	copy_from_user((inst->macs[i])->name, buffer, result);
-		inst->macs[i]->name[result-1] = '\0';
-		
-	      	// Create and fetch a new instance
-	      	void *p  = cu_softmac_layer_new_instance((inst->macs[i])->name);  
-		cu_softmac_macinfo_get(p);
+	    int i;
+	    int success=0;
+	    CU_SOFTMAC_MACLAYER_INFO *mac;      
+	    
+	    if (result > CU_SOFTMAC_NAME_SIZE)
+		result = CU_SOFTMAC_NAME_SIZE;
+	    kdata[result-1] = 0;
+	    
+	    printk("Adding mac layer %s %d.\n", kdata, result);
+	    
+	    // Create and fetch a new instance
+	    mac = cu_softmac_layer_new_instance(kdata);  
+	    mac = cu_softmac_macinfo_get(mac);
+	    
+	    if (!mac) {
+		printk("Didn't find %s!\n", kdata);
+		break;
+	    }
+	    
+	    write_lock(&(inst->mac_busy));
+	    for(i=0; i<MULTIMAC_MAX_MACS; i++) {
+		if(inst->macs[i]==NULL) {
+		    inst->macs[i] = kmalloc(sizeof(MAC_INSTANCE), GFP_KERNEL);
+		    memset(inst->macs[i], 0, sizeof(MAC_INSTANCE));
+		    strncpy((inst->macs[i])->name, mac->name, CU_SOFTMAC_NAME_SIZE);
 
-		if(p!=NULL)
-		{
-			(inst->macs[i])->mac = p;
-			(inst->macs[i])->myrxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_rx;
-			(inst->macs[i])->mytxfunc = ((inst->macs[i])->mac)->cu_softmac_mac_packet_tx;
-			(inst->macs[i])->mac->cu_softmac_mac_set_rx_func(((inst->macs[i])->mac)->mac_private,
-									 cu_softmac_netif_rx_packet,
-									 inst->netif);
-			inst->runningmacs++;
-
-		}else{
-			printk("Didn't find that!\n");
-			inst->macs[i]=NULL;
-		}
-	
-		success=1;
-		break;	
+		    (inst->macs[i])->mac = mac;
+		    (inst->macs[i])->myrxfunc = mac->cu_softmac_mac_packet_rx;
+		    (inst->macs[i])->mytxfunc = mac->cu_softmac_mac_packet_tx;
+		    mac->cu_softmac_mac_set_rx_func(mac->mac_private,
+						    cu_softmac_netif_rx_packet,
+						    inst->netif);
+		    mac->cu_softmac_mac_attach(mac->mac_private,
+					       inst->multimac_fake_phy);
+		    printk("Added %s to slot %d\n", kdata, i);
+		    inst->runningmacs++;
+		    success = 1;
+		    break;
+		} 
+	    }
+	    write_unlock(&(inst->mac_busy));
+	    
+	    if(success==0)
+		printk("Could not add mac layer. No available slots found.\n");
 	}
-      }
-      
-      if(success==0)
-      	printk("Could not add mac layer. No available slots found.\n");
-      
-      write_unlock(&(inst->mac_busy));
-      break;
+	break;
      case CHEESYMAC_INST_PROC_DELETEMAC:
       intval = simple_strtol(kdata,&endp,10);
+
+      if (result > CU_SOFTMAC_NAME_SIZE)
+	  result = CU_SOFTMAC_NAME_SIZE;
+      kdata[result-1] = 0;
+
       write_lock(&(inst->mac_busy));
-      
-      char *dname = kmalloc(64, GFP_KERNEL);
-      copy_from_user(dname, buffer, 63);
-      dname[result]='\0';
             
       if((inst->runningmacs)>=1)
       {
-      
 	int i;
-	
-        for(i=0; i<10; i++)
+        for(i=0; i<MULTIMAC_MAX_MACS; i++)
       	{
       		if(inst->macs[i]!=NULL)
 		{
-			if(strncmp(inst->macs[i]->name, dname, result-1)==0)
+			if(strncmp((inst->macs[i])->name, kdata, CU_SOFTMAC_NAME_SIZE)==0)
 			{
-				//CU_SOFTMAC_MACLAYER_INFO *macinfo = inst->macs[i]->mac;
-				char *n = inst->macs[i]->name;
-      				// cu_softmac_layer_free_instance(n, macinfo);
-			      	
-				kfree(inst->macs[i]);
-				inst->macs[i] = NULL;
-				inst->runningmacs--;
-				printk("Mac layer removed.\n");
-				break;
+			    printk("Removing mac layer %s.\n", (inst->macs[i])->name);
+			    
+			    CU_SOFTMAC_MACLAYER_INFO *mac = (inst->macs[i])->mac;
+			    mac->cu_softmac_mac_set_rx_func(mac->mac_private, 0, 0);
+			    mac->cu_softmac_mac_detach(mac->mac_private);
+			    cu_softmac_macinfo_free(mac);
+
+			    kfree(inst->macs[i]);
+			    inst->macs[i] = NULL;
+			    inst->runningmacs--;
+			    break;
 			}
 		}      
 	}
@@ -1821,7 +1872,6 @@ cu_softmac_mac_set_rx_func_cheesymac(void* mydata,
   CHEESYMAC_INSTANCE* inst = mydata;
   if (inst) {
     write_lock(&(inst->mac_busy));  
-    //inst->myrxfunc = metamac_netif_rxhelper;
     inst->myrxfunc = rxfunc;
     inst->myrxfunc_priv = rxpriv;
     write_unlock(&(inst->mac_busy));  
@@ -1985,7 +2035,6 @@ static void __exit softmac_cheesymac_exit(void)
 module_init(softmac_cheesymac_init);
 module_exit(softmac_cheesymac_exit);
 
-EXPORT_SYMBOL(multimac_tx);
 EXPORT_SYMBOL(cu_softmac_cheesymac_new_instance);
 EXPORT_SYMBOL(cu_softmac_cheesymac_free_instance);
 EXPORT_SYMBOL(cu_softmac_cheesymac_set_macinfo_functions);

@@ -5,8 +5,9 @@ SUBDIRS=cheesymac \
 	mactime \
 	madwifi_bsd_phy \
 	multimac \
-	multimac/mod1 \
-	nullmac 
+	nullmac \
+	remotemac \
+	remotemac/ktund
 
 # every module should compile against this directory
 ifndef KERNELSOURCE

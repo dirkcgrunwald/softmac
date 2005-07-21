@@ -212,7 +212,7 @@ ktund_tunnel_main(void *v)
     int ret;
     int old_stop_count;
     CU_SOFTMAC_MACLAYER_INFO *remotemac;
-    CU_SOFTMAC_PHYLAYER_INFO *athphy;
+    //CU_SOFTMAC_PHYLAYER_INFO *athphy;
     DECLARE_WAIT_QUEUE_HEAD(waitq);
 
     __module_get(THIS_MODULE);
@@ -280,6 +280,7 @@ ktund_tunnel_main(void *v)
 	}
 	ath_cu_remote_register_rx_func(ath_dev, ktund_tunnel_txskb, 0);
 #endif
+#if 0
 	athphy = cu_softmac_phyinfo_get_by_name("athphy0");
 	if (!athphy)
 	    athphy = cu_softmac_phyinfo_get( cu_softmac_layer_new_instance("athphy") );
@@ -288,7 +289,7 @@ ktund_tunnel_main(void *v)
 	    module_put(THIS_MODULE);
 	    return 0;
 	}
-
+#endif
 	remotemac = cu_softmac_macinfo_get_by_name("remotemac0");
 	if (!remotemac)
 	    remotemac = cu_softmac_macinfo_get( cu_softmac_layer_new_instance("remotemac") );
@@ -298,8 +299,8 @@ ktund_tunnel_main(void *v)
 	    return 0;
 	}
 	remotemac->cu_softmac_mac_set_rx_func(remotemac->mac_private, ktund_tunnel_txskb, 0);
-	remotemac->cu_softmac_mac_attach(remotemac->mac_private, athphy);
-	athphy->cu_softmac_phy_attach(athphy->phy_private, remotemac);
+	//remotemac->cu_softmac_mac_attach(remotemac->mac_private, athphy);
+	//athphy->cu_softmac_phy_attach(athphy->phy_private, remotemac);
 
 	/* start receiving data */
 	while (connected && old_stop_count == atomic_read(&ktund_stop_count)) {
@@ -318,12 +319,12 @@ ktund_tunnel_main(void *v)
 	/* disconnected */
 	//ath_cu_remote_unregister_rx_func(ath_dev, ktund_tunnel_txskb);
 	remotemac->cu_softmac_mac_set_rx_func(remotemac->mac_private, 0, 0);
-	remotemac->cu_softmac_mac_detach(remotemac->mac_private);
-	athphy->cu_softmac_phy_detach(athphy->phy_private);
+	//remotemac->cu_softmac_mac_detach(remotemac->mac_private);
+	//athphy->cu_softmac_phy_detach(athphy->phy_private);
 
 	/* decrement reference count */
 	//dev_put(ath_dev);
-	cu_softmac_phyinfo_free(athphy);
+	//cu_softmac_phyinfo_free(athphy);
 	cu_softmac_macinfo_free(remotemac);
 
 	server_sock = 0;
@@ -418,5 +419,5 @@ module_exit(ktund_exit);
 MODULE_AUTHOR("Jeff Fifield");
 MODULE_DESCRIPTION("ktund");
 MODULE_LICENSE("GPL");
-//EXPORT_SYMBOL( ktund_tunnel_txskb );
+EXPORT_SYMBOL( ktund_tunnel_txskb );
 //EXPORT_SYMBOL( ktund_tunnel_tx );
