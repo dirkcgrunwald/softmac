@@ -222,6 +222,7 @@ remotemac_rx_tasklet(unsigned long data)
 	struct ktund_packet_hdr *khdr;
 
 	int len = skb->len;
+	skb_cow(skb, sizeof(struct remotemac_rx_header) + sizeof(struct ktund_packet_hdr));
 	hdr = (struct remotemac_rx_header *) skb_push(skb, sizeof(struct remotemac_rx_header));
 	khdr = (struct ktund_packet_hdr *) skb_push(skb, sizeof(struct ktund_packet_hdr));
 

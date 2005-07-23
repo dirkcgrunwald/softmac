@@ -40,7 +40,7 @@
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
 #include "cu_softmac_api.h"
-//#include "cu_softmac_ath_api.h"
+#include "cu_softmac_ath_api.h"
 #include "softmac_netif.h"
 #include "softmac_multimac.h"
 
@@ -657,6 +657,11 @@ metamac_netif_rxhelper(void* priv,
 
       //printk("MultiMAC: packet received %p %d\n", inst, inst->runningmacs);
     int i;
+
+    /* if running in ath raw mode */
+    if (cu_softmac_ath_issoftmac(inst->myphy->phy_private, packet))
+	packet = cu_softmac_ath_decapsulate(inst->myphy->phy_private, packet);
+
     for(i=0; i<MULTIMAC_MAX_MACS; i++)
     {
     	if(inst->macs[i])
@@ -835,8 +840,8 @@ static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst, struct sk_bu
     /*
      * XXX use of atheros-specific PHY calls!!!
      */
-      //cu_softmac_ath_set_default_phy_props(inst->myphy->phy_private, skb);
-      //cu_softmac_ath_set_tx_bitrate(inst->myphy->phy_private, skb, inst->txbitrate);    
+      cu_softmac_ath_set_default_phy_props(inst->myphy->phy_private, skb);
+      cu_softmac_ath_set_tx_bitrate(inst->myphy->phy_private, skb, inst->txbitrate);    
   }
 }
 

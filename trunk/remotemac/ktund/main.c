@@ -39,6 +39,10 @@ static struct socket *server_sock;
 #define RX_BUF_SIZE 4096
 static unsigned char *rx_buf;
 
+static struct sk_buff_head ktund_tunnel_txq;
+static void ktund_tunnel_tx_work(void *);
+DECLARE_WORK(ktund_tunnel_tx_workq, ktund_tunnel_tx_work, NULL);
+
 /* we may not get all bytes of a packet at once.
    rx_leftover_bytes indicates the number of bytes 
    still sitting in rx_buf[] from a previous recvmsg */
@@ -47,70 +51,61 @@ static int rx_leftover_bytes;
 /* ath/if_ath.c */
 extern struct sk_buff *remotemac_alloc_skb(void *priv, u_int size);
 
-/* host -> net */
-static int
-ktund_tunnel_tx(char *data, int len)
+static void
+ktund_tunnel_tx_work(void *p)
 {
     struct msghdr msg;
     struct kvec kv[3];
     struct ktund_packet_hdr *pkt_hdrp;
     struct ktund_packet_hdr pkt_hdr;
+    struct sk_buff *skb;
     int kv_len;
+    char *data;
+    int len;
 
-    if (!server_sock) {
-	printk(NAME ":%s !server_sock\n", __func__ );
-	return -ENETDOWN;
+    //server_sock->sk->sk_allocation = GFP_ATOMIC;
+
+    while (server_sock && (skb = skb_dequeue(&ktund_tunnel_txq)) ) {
+	data = skb->data;
+	len = skb->len;
+
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_flags  = MSG_NOSIGNAL | MSG_DONTWAIT;
+	
+	pkt_hdrp = (struct ktund_packet_hdr *)data;
+	if (pkt_hdrp->sync != KTUND_SYNC) {
+	    /* build the packet header */
+	    memset(&pkt_hdr, 0, sizeof(pkt_hdr));
+	    pkt_hdr.sync = KTUND_SYNC;
+	    pkt_hdr.ctl_len = 0;
+	    pkt_hdr.data_len = len;
+	    
+	    kv[0].iov_base = (char *)&pkt_hdr;
+	    kv[0].iov_len  = sizeof(struct ktund_packet_hdr);
+	    kv[1].iov_base = data;
+	    kv[1].iov_len  = len;
+	    kv_len = 2;
+	    len = sizeof(struct ktund_packet_hdr) + pkt_hdr.ctl_len + pkt_hdr.data_len;
+	} else {
+	    /* header already exists */
+	    kv[0].iov_base = data;
+	    kv[0].iov_len  = len;
+	    kv_len = 1;
+	}
+	
+	/* send packet */
+	kernel_sendmsg(server_sock, &msg, kv, kv_len, len);
+	kfree_skb(skb);
     }
-    server_sock->sk->sk_allocation = GFP_ATOMIC;
-
-    // XXX should use a work queue since probably get called by top half or tasklet
-
-    /* if some other code, ktund_tunnel_rx for example, currently
-       has the socket locked and we are in interrupt context, tcp
-       will try to lock the socket, then sleep, then kernel panic  */
-    if ((sock_owned_by_user(server_sock->sk) != 0) && in_interrupt()) {
-	/*printk(NAME ":%s would block in intr!\n", __func__ );*/
-	return -EAGAIN;
-    }
-
-    memset(&msg, 0, sizeof(msg));
-    msg.msg_flags  = MSG_NOSIGNAL | MSG_DONTWAIT;
-    
-    pkt_hdrp = (struct ktund_packet_hdr *)data;
-    if (pkt_hdrp->sync != KTUND_SYNC) {
-	/* build the packet header */
-	memset(&pkt_hdr, 0, sizeof(pkt_hdr));
-	pkt_hdr.sync = KTUND_SYNC;
-	pkt_hdr.ctl_len = 0;
-	pkt_hdr.data_len = len;
-
-	kv[0].iov_base = (char *)&pkt_hdr;
-	kv[0].iov_len  = sizeof(struct ktund_packet_hdr);
-	kv[1].iov_base = data;
-	kv[1].iov_len  = len;
-	kv_len = 2;
-	len = sizeof(struct ktund_packet_hdr) + pkt_hdr.ctl_len + pkt_hdr.data_len;
-    } else {
-	/* header already exists */
-	kv[0].iov_base = data;
-	kv[0].iov_len  = len;
-	kv_len = 1;
-    }
-
-    /* send packet */
-    return kernel_sendmsg(server_sock, &msg, kv, kv_len, len);
 }
 
+/* host -> net */
 static int
-ktund_tunnel_txskb(void *p, struct sk_buff *skb)
+ktund_tunnel_tx(void *p, struct sk_buff *skb)
 {        
-    int ret;
-
-    ret = ktund_tunnel_tx(skb->data, skb->len);
-    if (ret < 0 && ret != -EAGAIN)
-	printk(NAME ":%s error %d\n", __func__, -ret);
-
-    kfree_skb(skb);
+    int ret = 0;
+    skb_queue_tail(&ktund_tunnel_txq, skb);
+    schedule_work(&ktund_tunnel_tx_workq);
     return ret;
 }
 
@@ -278,7 +273,7 @@ ktund_tunnel_main(void *v)
 	    module_put(THIS_MODULE);
 	    return 0;
 	}
-	ath_cu_remote_register_rx_func(ath_dev, ktund_tunnel_txskb, 0);
+	ath_cu_remote_register_rx_func(ath_dev, ktund_tunnel_tx 0);
 #endif
 #if 0
 	athphy = cu_softmac_phyinfo_get_by_name("athphy0");
@@ -298,7 +293,7 @@ ktund_tunnel_main(void *v)
 	    module_put(THIS_MODULE);
 	    return 0;
 	}
-	remotemac->cu_softmac_mac_set_rx_func(remotemac->mac_private, ktund_tunnel_txskb, 0);
+	remotemac->cu_softmac_mac_set_rx_func(remotemac->mac_private, ktund_tunnel_tx, 0);
 	//remotemac->cu_softmac_mac_attach(remotemac->mac_private, athphy);
 	//athphy->cu_softmac_phy_attach(athphy->phy_private, remotemac);
 
@@ -317,7 +312,7 @@ ktund_tunnel_main(void *v)
 	}
 
 	/* disconnected */
-	//ath_cu_remote_unregister_rx_func(ath_dev, ktund_tunnel_txskb);
+	//ath_cu_remote_unregister_rx_func(ath_dev, ktund_tunnel_tx);
 	remotemac->cu_softmac_mac_set_rx_func(remotemac->mac_private, 0, 0);
 	//remotemac->cu_softmac_mac_detach(remotemac->mac_private);
 	//athphy->cu_softmac_phy_detach(athphy->phy_private);
@@ -391,6 +386,7 @@ static int __init ktund_init(void)
     ktund_start = 0;
     ktund_stop = 1;
     ktund_unload = 0;
+    skb_queue_head_init(&ktund_tunnel_txq);
  
     atomic_set(&ktund_stop_count, 0);
 
@@ -419,5 +415,3 @@ module_exit(ktund_exit);
 MODULE_AUTHOR("Jeff Fifield");
 MODULE_DESCRIPTION("ktund");
 MODULE_LICENSE("GPL");
-EXPORT_SYMBOL( ktund_tunnel_txskb );
-//EXPORT_SYMBOL( ktund_tunnel_tx );

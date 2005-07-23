@@ -361,14 +361,14 @@ void cu_softmac_ath_set_phocus_state(u_int16_t state,int16_t settle);
 
 // Encapsulate/decapsulate the required extra header gunk
 static struct sk_buff* ath_cu_softmac_encapsulate(struct ath_softc* sc,struct sk_buff* skb);
-static struct sk_buff* ath_cu_softmac_decapsulate(struct ath_softc* sc,struct sk_buff* skb);
+//static struct sk_buff* cu_softmac_ath_decapsulate(struct ath_softc* sc,struct sk_buff* skb);
 // returns length of header or -1 if unknown packet type
 static int ath_cu_softmac_getheaderlen(struct ath_softc*,struct sk_buff*);
 // returns CU_SOFTMAC_HEADER_* variable
 static int ath_cu_softmac_getheadertype(struct ath_softc*,struct sk_buff*);
 static unsigned char ath_cu_softmac_getheadertype_cb(struct ath_softc*,struct sk_buff*);
 
-static int ath_cu_softmac_issoftmac(struct ath_softc* sc,struct sk_buff* skb);
+//static int cu_softmac_ath_issoftmac(struct ath_softc* sc,struct sk_buff* skb);
 static unsigned char ath_cu_softmac_tag_cb(struct ath_softc* sc,
 					   struct ath_desc* ds,
 					   struct sk_buff* skb);
@@ -7130,9 +7130,9 @@ cu_softmac_phy_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
   int error = CU_SOFTMAC_PHY_SENDPACKET_OK;
 
   atomic_inc(&(sc->sc_cu_softmac_tx_packets_inflight));
-  if (!(sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
+  //if (!(sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
     skb = ath_cu_softmac_encapsulate(sc,skb);
-  }
+  //}
   if ((max_packets_inflight > 0) &&
       (max_packets_inflight < atomic_read(&(sc->sc_cu_softmac_tx_packets_inflight)))) {
     // Too many pending packets -- bail out...
@@ -7190,7 +7190,7 @@ cu_softmac_phy_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
   //ieee80211_free_node(ic, ni);
   // Decrement inflight packet count on failure
   atomic_dec(&(sc->sc_cu_softmac_tx_packets_inflight));
-  skb = ath_cu_softmac_decapsulate(sc,skb);
+  skb = cu_softmac_ath_decapsulate(sc,skb);
   if (bf != NULL) {
     ATH_TXBUF_LOCK_BH(sc);
     STAILQ_INSERT_TAIL(&sc->sc_txbuf, bf, bf_list);
@@ -7434,7 +7434,8 @@ ath_cu_softmac_tag_cb(struct ath_softc* sc,struct ath_desc* ds,struct sk_buff* s
 }
 
 static int
-ath_cu_softmac_issoftmac(struct ath_softc* sc,struct sk_buff* skb) {
+cu_softmac_ath_issoftmac(void *data,struct sk_buff* skb) {
+  struct ath_softc *sc = (struct ath_softc *)data;
   int htype = ath_cu_softmac_getheadertype(sc,skb);
   return (CU_SOFTMAC_HEADER_UNKNOWN != htype);
 }
@@ -7461,7 +7462,8 @@ ath_cu_softmac_encapsulate(struct ath_softc* sc,struct sk_buff* skb) {
 }
 
 static struct sk_buff*
-ath_cu_softmac_decapsulate(struct ath_softc* sc, struct sk_buff* skb) {
+cu_softmac_ath_decapsulate(void *data, struct sk_buff* skb) {
+  struct ath_softc* sc = (struct ath_softc *)data;
   // strip the header off of the beginning, rip the CRC off of the end,
   // do the right thing w.r.t. packets that have CRC errors
   int haserrors = 0;
@@ -7640,9 +7642,9 @@ ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop)
      * otherwise, softmac packets get decapsulated and others are dropped
      */
     if ( !(sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE) ) {
-	if (ath_cu_softmac_issoftmac(sc,skb)) {
+	if (cu_softmac_ath_issoftmac(sc,skb)) {
 	    //printk("%s got softmac packet!\n", __func__);
-	    skb = ath_cu_softmac_decapsulate(sc, skb);
+	    skb = cu_softmac_ath_decapsulate(sc, skb);
 	} else {
 	    /* not in raw mode and not softmac, discard */
 	    dev_kfree_skb_any(skb);
@@ -8389,6 +8391,9 @@ EXPORT_SYMBOL(cu_softmac_ath_set_cw);
 EXPORT_SYMBOL(cu_softmac_ath_get_slottime);
 EXPORT_SYMBOL(cu_softmac_ath_set_slottime);
 EXPORT_SYMBOL(cu_softmac_ath_set_options);
+
+EXPORT_SYMBOL(cu_softmac_ath_decapsulate);
+EXPORT_SYMBOL(cu_softmac_ath_issoftmac);
 
 EXPORT_SYMBOL(cu_softmac_ath_set_default_phy_props);
 EXPORT_SYMBOL(cu_softmac_ath_set_tx_bitrate);

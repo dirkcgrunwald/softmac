@@ -34,11 +34,6 @@
  * the CSMA properties performed by the underlying system.
  */
 
-/*
- * Get phy layer information for the specified atheros net device
- */
-void cu_softmac_ath_get_phyinfo(struct net_device* dev, CU_SOFTMAC_PHYLAYER_INFO* phyinfo);
-
 void cu_softmac_ath_set_cca_nf(void* mydata, u_int32_t ccanf);
 void cu_softmac_ath_set_cw(void* mydata, int cwmin, int cwmax);
 u_int32_t cu_softmac_ath_get_slottime(void* mydata);
@@ -72,6 +67,8 @@ u_int8_t cu_softmac_ath_get_rx_rssi(void* mydata, struct sk_buff* packet);
 u_int8_t cu_softmac_ath_get_rx_channel(void* mydata, struct sk_buff* packet);
 u_int8_t cu_softmac_ath_has_rx_crc_error(void* mydata, struct sk_buff* packet);
 
+int cu_softmac_ath_issoftmac(/*struct ath_softc**/void *sc, struct sk_buff* skb);
+struct sk_buff* cu_softmac_ath_decapsulate(/*struct ath_softc**/void *sc,struct sk_buff* skb);
 
 enum {
   /*
