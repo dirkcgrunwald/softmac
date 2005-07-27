@@ -459,6 +459,7 @@ ath_attach(u_int16_t devid, struct net_device *dev)
 	sc->sc_cu_softmac_phy = 0;
 	sc->sc_cu_softmac_txlatency = ATH_CU_SOFTMAC_DEFAULT_TXLATENCY;
 	sc->sc_cu_softmac_phocus_settletime = ATH_CU_SOFTMAC_DEFAULT_PHOCUS_SETTLETIME;
+
 	sc->sc_cu_softmac_wifictl0 = CU_SOFTMAC_WIFICTL0;
 	sc->sc_cu_softmac_wifictl1 = CU_SOFTMAC_WIFICTL1;
 
@@ -6219,14 +6220,15 @@ enum {
 	ATH_CU_SOFTMAC = 22,
 	ATH_CU_SOFTMAC_RAW80211 = 23,
 	ATH_CU_SOFTMAC_PHOCUS_SETTLETIME = 24,
-	ATH_CU_SOFTMAC_ENABLE_PHOCUS = 25,
-	ATH_CU_SOFTMAC_WIFIVERSION = 26,
-	ATH_CU_SOFTMAC_WIFITYPE = 27,
-	ATH_CU_SOFTMAC_WIFISUBTYPE = 28,
-	ATH_CU_SOFTMAC_WIFIFLAGS = 29,
-	ATH_CU_SOFTMAC_NOAUTOCALIBRATE = 30,
-	ATH_CU_SOFTMAC_CALIBRATE_NOW = 31,
-	ATH_CU_SOFTMAC_PHY_NF_RAW = 32,
+	ATH_CU_SOFTMAC_PHOCUS_ENABLE = 25,
+	ATH_CU_SOFTMAC_PHOCUS_STATE = 26,
+	ATH_CU_SOFTMAC_WIFIVERSION = 27,
+	ATH_CU_SOFTMAC_WIFITYPE = 28,
+	ATH_CU_SOFTMAC_WIFISUBTYPE = 29,
+	ATH_CU_SOFTMAC_WIFIFLAGS = 30,
+	ATH_CU_SOFTMAC_NOAUTOCALIBRATE = 31,
+	ATH_CU_SOFTMAC_CALIBRATE_NOW = 32,
+	ATH_CU_SOFTMAC_PHY_NF_RAW = 33,
 #endif
 };
 
@@ -6387,9 +6389,18 @@ ATH_SYSCTL_DECL(ath_sysctl_halparam, ctl, write, filp, buffer, lenp, ppos)
 			  // set a value for the PHY_NF register
 			  OS_REG_WRITE(sc->sc_ah,39012,val);
 			  break;
-			case ATH_CU_SOFTMAC_ENABLE_PHOCUS:
+			case ATH_CU_SOFTMAC_PHOCUS_ENABLE:
 			  // enable the phocus antenna unit
-			  sc->sc_cu_softmac_enable_phocus = val;
+			  sc->sc_cu_softmac_phocus_enable = val;
+			  break;
+			case ATH_CU_SOFTMAC_PHOCUS_STATE:
+			  // configure the phocus antenna unit
+			  if (sc->sc_cu_softmac_phocus_enable && 
+			      (val != sc->sc_cu_softmac_phocus_state)) {
+			    sc->sc_cu_softmac_phocus_state = val;
+			    cu_softmac_ath_set_phocus_state(sc->sc_cu_softmac_phocus_state, 
+							    sc->sc_cu_softmac_phocus_settletime);
+			  }
 			  break;
 			case ATH_CU_SOFTMAC_WIFIVERSION:
 			  {
@@ -6530,9 +6541,13 @@ ATH_SYSCTL_DECL(ath_sysctl_halparam, ctl, write, filp, buffer, lenp, ppos)
 		  // get value for the PHY_NF register
 		  val = OS_REG_READ(sc->sc_ah,39012);
 		  break;
-		case ATH_CU_SOFTMAC_ENABLE_PHOCUS:
+		case ATH_CU_SOFTMAC_PHOCUS_ENABLE:
 		  // enable use of phocus antenna
-		  val = sc->sc_cu_softmac_enable_phocus;
+		  val = sc->sc_cu_softmac_phocus_enable;
+		  break;
+		case ATH_CU_SOFTMAC_PHOCUS_STATE:
+		  // configuration of phocus antenna
+		  val = sc->sc_cu_softmac_phocus_state;
 		  break;
 		case ATH_CU_SOFTMAC_WIFIVERSION:
 		  // get the wifi version encap field
@@ -6698,8 +6713,13 @@ static const ctl_table ath_sysctl_template[] = {
 	  .mode		= 0644,
 	  .proc_handler	= ath_sysctl_halparam
 	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_ENABLE_PHOCUS,
-	  .procname	= "cu_softmac_enable_phocus",
+	{ .ctl_name	= ATH_CU_SOFTMAC_PHOCUS_ENABLE,
+	  .procname	= "cu_softmac_phocus_enable",
+	  .mode		= 0644,
+	  .proc_handler	= ath_sysctl_halparam
+	},
+	{ .ctl_name	= ATH_CU_SOFTMAC_PHOCUS_STATE,
+	  .procname	= "cu_softmac_phocus_state",
 	  .mode		= 0644,
 	  .proc_handler	= ath_sysctl_halparam
 	},
@@ -7148,6 +7168,14 @@ cu_softmac_phy_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
     error = CU_SOFTMAC_PHY_SENDPACKET_ERR_NETDOWN;
     goto bad;
   }
+
+  if (sc->sc_cu_softmac_phocus_enable) {
+      u_int16_t state = (u_int16_t)skb->cb[ATH_CU_SOFTMAC_CB_ANTENNA];
+      if (state != sc->sc_cu_softmac_phocus_state) {
+	  cu_softmac_ath_set_phocus_state(state, sc->sc_cu_softmac_phocus_settletime);
+      }
+  }
+
   /*
    * Grab a TX buffer and associated resources.
    */
@@ -7304,6 +7332,7 @@ cu_softmac_ath_set_default_phy_props(CU_SOFTMAC_PHY_HANDLE nfh,
   packet->cb[ATH_CU_SOFTMAC_CB_RX_CRCERR] = 0;
   packet->cb[ATH_CU_SOFTMAC_CB_RX_RSSI] = 0;
   packet->cb[ATH_CU_SOFTMAC_CB_RX_CHANNEL] = 0;
+  packet->cb[ATH_CU_SOFTMAC_CB_ANTENNA] = 0; // zero is often "omni"
   packet->cb[ATH_CU_SOFTMAC_CB_RX_TSF0] = 0;
   packet->cb[ATH_CU_SOFTMAC_CB_RX_TSF1] = 0;
   packet->cb[ATH_CU_SOFTMAC_CB_RX_TSF2] = 0;
@@ -7380,6 +7409,24 @@ cu_softmac_ath_has_rx_crc_error(CU_SOFTMAC_PHY_HANDLE nfh,
   return packet->cb[ATH_CU_SOFTMAC_CB_RX_CRCERR];
 }
 
+void
+cu_softmac_ath_set_tx_antenna(CU_SOFTMAC_PHY_HANDLE nfh,
+			      struct sk_buff* packet, u_int32_t state) {
+  //struct ath_softc *sc = (struct ath_softc*) nfh;
+  //struct net_device* dev = &(sc->sc_dev);
+  //struct ath_hal *ah = sc->sc_ah;
+  packet->cb[ATH_CU_SOFTMAC_CB_ANTENNA] = (u_int8_t)state;
+}
+
+u_int32_t
+cu_softmac_ath_get_rx_antenna(CU_SOFTMAC_PHY_HANDLE nfh,
+			      struct sk_buff* packet) {
+  //struct ath_softc *sc = (struct ath_softc*) nfh;
+  //struct net_device* dev = &(sc->sc_dev);
+  //struct ath_hal *ah = sc->sc_ah;
+
+  return (u_int32_t)(packet->cb[ATH_CU_SOFTMAC_CB_ANTENNA]);
+}
 
 //
 // Some "internal" softmac utility functions that smooth
@@ -7429,11 +7476,12 @@ ath_cu_softmac_tag_cb(struct ath_softc* sc,struct ath_desc* ds,struct sk_buff* s
   skb->cb[ATH_CU_SOFTMAC_CB_RATE] = sc->sc_hwmap[ds->ds_rxstat.rs_rate].ieeerate;
   skb->cb[ATH_CU_SOFTMAC_CB_RX_RSSI] = ds->ds_rxstat.rs_rssi;
   skb->cb[ATH_CU_SOFTMAC_CB_RX_CHANNEL] = ieee80211_mhz2ieee(ic->ic_ibss_chan->ic_freq,0);
+  skb->cb[ATH_CU_SOFTMAC_CB_ANTENNA] = sc->sc_cu_softmac_phocus_state;
 
   return cbtype;
 }
 
-static int
+int
 cu_softmac_ath_issoftmac(void *data,struct sk_buff* skb) {
   struct ath_softc *sc = (struct ath_softc *)data;
   int htype = ath_cu_softmac_getheadertype(sc,skb);
@@ -7461,9 +7509,9 @@ ath_cu_softmac_encapsulate(struct ath_softc* sc,struct sk_buff* skb) {
   return skb;
 }
 
-static struct sk_buff*
+struct sk_buff*
 cu_softmac_ath_decapsulate(void *data, struct sk_buff* skb) {
-  struct ath_softc* sc = (struct ath_softc *)data;
+  //struct ath_softc* sc = (struct ath_softc *)data;
   // strip the header off of the beginning, rip the CRC off of the end,
   // do the right thing w.r.t. packets that have CRC errors
   int haserrors = 0;
@@ -7633,10 +7681,14 @@ ath_cu_softmac_rx(struct net_device* dev,struct sk_buff* skb,int intop)
     void *macpriv;
     int rxresult;
     
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11))
+    read_lock(&(sc->sc_cu_softmac_mac_lock));
+#else
     if (!read_trylock(&(sc->sc_cu_softmac_mac_lock))) {
 	dev_kfree_skb_any(skb);
 	return 0;
     }
+#endif
 
     /* if in raw mode, packets are passed to the MAC unchanged
      * otherwise, softmac packets get decapsulated and others are dropped
@@ -7943,7 +7995,12 @@ ath_cu_softmac_handle_txdone(struct net_device* dev, int intop) {
 	atomic_dec(&(sc->sc_cu_softmac_tx_packets_inflight));
 	skb = bf->bf_skb;
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11))
+	read_lock(&(sc->sc_cu_softmac_mac_lock));
+	if (1) {
+#else
 	if (read_trylock(&(sc->sc_cu_softmac_mac_lock))) {
+#endif
 	  // XXX make a dummy MAC layer to avoid this check?
 	  if (sc->sc_cu_softmac_mac->cu_softmac_mac_packet_tx_done) {
 	    int txdoneresult = (sc->sc_cu_softmac_mac->cu_softmac_mac_packet_tx_done)(macpriv,skb,intop);
@@ -8015,9 +8072,14 @@ ath_cu_softmac_work_tasklet(TQUEUE_ARG data) {
   struct ath_softc *sc = dev->priv;
   void* macpriv = 0;
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11))
+  read_lock(&(sc->sc_cu_softmac_mac_lock));
+#else
   if (!read_trylock(&(sc->sc_cu_softmac_mac_lock))) {
     return;
   }
+#endif
+
   // See if we've got a "hook" function set -- run it if we do
   //printk(KERN_DEBUG "In ath_cu_softmac_work_tasklet\n");
   macpriv = sc->sc_cu_softmac_mac->mac_private;
@@ -8403,5 +8465,7 @@ EXPORT_SYMBOL(cu_softmac_ath_get_rx_time);
 EXPORT_SYMBOL(cu_softmac_ath_has_rx_crc_error);
 EXPORT_SYMBOL(cu_softmac_ath_get_rx_rssi);
 EXPORT_SYMBOL(cu_softmac_ath_get_rx_channel);
+EXPORT_SYMBOL(cu_softmac_ath_set_tx_antenna);
+EXPORT_SYMBOL(cu_softmac_ath_get_rx_antenna);
 EXPORT_SYMBOL(cu_softmac_ath_set_phocus_state);
 #endif

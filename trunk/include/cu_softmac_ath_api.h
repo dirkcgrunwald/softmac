@@ -44,6 +44,9 @@ void cu_softmac_ath_set_options(void* mydata, u_int32_t options);
  * Per-packet phy layer directives are set in the skbuff, as
  * are some phy layer properties upon reception.
  * These routines manipulate/query these directives.
+ */
+
+/*
  * XXX unclear if these should be in Atheros-specific
  * header or not? Some of these could be abstracted
  * away as a "simple" PHY encoding interface that
@@ -52,22 +55,41 @@ void cu_softmac_ath_set_options(void* mydata, u_int32_t options);
  */
 void cu_softmac_ath_set_default_phy_props(void* mydata, struct sk_buff* packet);
 
+/* set the bitrate 'packet' should be sent with */
 void cu_softmac_ath_set_tx_bitrate(void* mydata,
 				   struct sk_buff* packet,
 				   unsigned char rate);
 
+/* return the bitrate 'packet' was received with */
 u_int8_t cu_softmac_ath_get_rx_bitrate(void* mydata, struct sk_buff* packet);
 
+/* request a txdone interrupt for this packet */
 void cu_softmac_ath_require_txdone_interrupt(void* mydata, 
 					     struct sk_buff* packet,
 					     int require_interrupt);
 
+/* return the 64-bit receive timestamp */
 u_int64_t cu_softmac_ath_get_rx_time(void* mydata, struct sk_buff* packet);
+
+/* return the signal strength 'packet' was received with */
 u_int8_t cu_softmac_ath_get_rx_rssi(void* mydata, struct sk_buff* packet);
+
+/* return the channel 'packet' was recieved on */
 u_int8_t cu_softmac_ath_get_rx_channel(void* mydata, struct sk_buff* packet);
+
+/* return 1 if 'packet' containes a crc error */
 u_int8_t cu_softmac_ath_has_rx_crc_error(void* mydata, struct sk_buff* packet);
 
+/* set the antenna configuration to 'state' when transmitting 'packet' */
+void cu_softmac_ath_set_tx_antenna(void *mydata, struct sk_buff* packet, u_int32_t state);
+
+/* return the configuration the antenna had when 'packet' was received */
+u_int32_t cu_softmac_ath_get_rx_antenna(void *mydata, struct sk_buff* packet);
+
+/* return 1 if the packet is of the atheros softmac variety */
 int cu_softmac_ath_issoftmac(/*struct ath_softc**/void *sc, struct sk_buff* skb);
+
+/* perform atheros softmac packet decapsulation */
 struct sk_buff* cu_softmac_ath_decapsulate(/*struct ath_softc**/void *sc,struct sk_buff* skb);
 
 enum {
