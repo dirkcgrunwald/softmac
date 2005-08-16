@@ -1,55 +1,47 @@
 ##########################################
-## Installation steps for CU_SOFTMAC
-##
-##
+ Installation steps for SoftMAC
+ $LastChangedDate$
 ##########################################
 
-## Installing
+1) Install the Linux distribution of your choice
+   (we use Mandrake and Debian on our development machines)
 
-1) Install a Linux Distribution of your choice
-   (we will be working and especially supporting
-   Mandrake Linux 10.1)
+2) We recommend using Linux kernel version 2.6.11.6 because it's what we use.  
+   A few slightly newer and older kernel versions are known to work.  Linux 
+   2.4 is not supported.  The build process will attempt to find your kernel 
+   source in /usr/src/linux.  It is recommended that the environment variable 
+   KERNELSOURCE be set so that 'make' can find the correct kernel source 
+   directory.
 
-2) Replace the installed kernel with 2.6.11.6
-   Compile and install the kernel anywhere, but
-   please make sure that a symbolic link exists
-   to your source code from /usr/src/linux for
-   linking to the madwifi drivers. Make sure to 
-   compile the crypto API into the kernel.
+$ export KERNELSOURCE=/usr/src/linux-2.6.11.6
 
-##### NEW!!
+3) Obtain the softmac source code from the SVN repository or as a tar.gz 
+   snapshot.  Navigate to the softmac root directory.  If using softmac
+   from SVN, this will be softmac/trunk.
 
-3) Use make in sdrnets/software/drivers/softmac/ 
-   to build and install the packages madwifi_bsd_phy
-   and cheesymac 
+$ svn co https://systems.cs.colorado.edu/svn/softmac
+$ cd softmac/trunk
 
-##### NEW!!
-   
-3) Make and make install the madwifi_bsd_phy
-   package in sdrnets/software/drivers/softmac/
+4) Type 'make' in the softmac source root directory to build softmac.
 
-4) Use the buildme.sh script to install the 
-   linux_netif package in sdrnets/software/
-   drivers/softmac/
+$ make
 
-5) To install the cheesymac MAC layer, within
-   the cheesymac directory,
-   a) Create the following 3 symbolic links
-     ln -s ../cu_softmac_api.h .
-     ln -s ../linux_netif/softmac_netif.h
-     ln -s ../madwifi_bsd_phy/cu_softmac_ath_api.h .
-   b) Install cheesymac using the buildme script
+5) Type 'make install' in the softmac source root directory to install softmac
+   on the local filesystem.  This installs the softmac kernel modules into
+   /lib/modules/2.6.11.6/net.  If using a non-standard kernel version, make
+   will try to find the appropriate directory.  However, if your distro does
+   strange things to the kernel version (debian), 'make install' may not
+   work correctly.
 
-## Running
+as root:
+# make install
+ - or - 
+as root:
+# mkdir /lib/modules/`uname -r`/net
+# cp `find . -name "*.ko"` /lib/modules/`uname -r`/net
 
-1) Load the madwifi and cheesymac driver with the scripts
-    load_softmac_base.sh
-    load_cheesymac.sh
+6) Run depmod so than modprobe can find your new softmac modules
 
-2) Now, you've got a new (virtual) interface called cheesymac1
-   you can address and bring up via ifconfig
+as root:
+# /sbin/depmod -ae
 
-3) HAVE FUN
-
-4) To unload the cheesymac MAC layer, run the script
-    unload_cheesymac.sh
