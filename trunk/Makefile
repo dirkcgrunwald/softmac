@@ -6,6 +6,7 @@ SUBDIRS=cheesymac \
 	madwifi_bsd_phy \
 	multimac \
 	nullmac \
+	rawmac \
 	remotemac \
 	remotemac/ktund
 
