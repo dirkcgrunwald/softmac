@@ -177,6 +177,7 @@ typedef struct CU_SOFTMAC_LAYER_INFO_t {
      * @brief Private data
      */
     void *layer_private;
+    void *proc;
 
     /* softmac internal */
     struct hlist_node name_hlist;
@@ -282,6 +283,7 @@ typedef struct CU_SOFTMAC_PHYLAYER_INFO_t {
      * @brief PHY layer private data
      */
     void *phy_private;
+    void *proc;
 
     /* softmac internal */
     atomic_t refcnt;
@@ -367,6 +369,7 @@ typedef struct CU_SOFTMAC_MACLAYER_INFO_t {
     int (*cu_softmac_mac_set_unload_notify_func)(void*,CU_SOFTMAC_MAC_UNLOAD_NOTIFY_FUNC,void*);
 
     void* mac_private;
+    void* proc;
 
     /* softmac internal */
     atomic_t refcnt;
