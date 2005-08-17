@@ -1389,6 +1389,7 @@ static void cheesymac_destroy_instance(void* mypriv)
 	
 	inst->mymac = 0;
 	inst->myphy = 0;
+	inst->multimac_fake_phy->phy_private = 0;
 	cu_softmac_phyinfo_free(inst->multimac_fake_phy);
 
 	write_unlock(&(inst->mac_busy));

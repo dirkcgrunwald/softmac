@@ -487,7 +487,7 @@ rawmac_mac_set_netif_rx_func(void *me,
 static int
 rawmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     struct rawmac_instance *inst = me; 
 
     BUG_ON(intop);
@@ -510,7 +510,7 @@ rawmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 static int
 rawmac_macdone(void *me, struct sk_buff *skb)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     struct rawmac_instance *inst = me;
 
     read_lock(&(inst->lock));
@@ -736,7 +736,7 @@ rawmac_new_instance (void *layer_priv)
 	rawmac_make_procfs_entries(inst);
 
 	/* */
-	rawmac_encapsulate_mac(inst, "cheesy1");
+	rawmac_encapsulate_mac(inst, 0);
 
 	/* we've registered with softmac, decrement the ref count */
 	cu_softmac_macinfo_free(inst->macinfo);
@@ -759,6 +759,7 @@ rawmac_free_instance (void *layer_priv, void *info)
     /* detach and free phyinfo, phyinfo_fake, macinfo_real */
     rawmac_mac_detach(inst);
     rawmac_encapsulate_mac(inst, 0);
+    inst->phyinfo_fake->phy_private = 0;
     cu_softmac_phyinfo_free(inst->phyinfo_fake);
     
     rawmac_delete_procfs_entries(inst);
