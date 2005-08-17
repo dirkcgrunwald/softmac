@@ -1,0 +1,36 @@
+
+==========================
+SoftMAC README File
+$LastChangedDate$
+==========================
+
+The latest version of this file can be found at:
+https://systems.cs.colorado.edu/svn/softmac/trunk/README
+
+This file describes the basics of Softmac.
+
+Softmac is an extension to the Madwifi [http://madwifi.sourceforge.org] driver
+for the Atheros 802.11a/b/g networking cards that provides more control over
+the MAC layer. In particular, Softmac lets you control
+
+* The transmitted contents of any given frame, aside from three mandatory 
+  bytes in the header and an automatically appended checksum
+* The receiption of packets, including those that fail to pass the checksum
+* The timing of when packets are transmitted 
+
+This allows researchers to build new mac protocols using relatively 
+inexpensive networking hardware.
+
+------------------
+Installing Softmac
+------------------
+
+For install instructions, see the INSTALL file included with the softmac 
+source code.  The latest version of INSTALL can be found at:  
+https://systems.cs.colorado.edu/svn/softmac/trunk/INSTALL
+
+---------------
+Running SoftMAC
+---------------
+
+TODO

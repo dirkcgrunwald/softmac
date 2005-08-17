@@ -551,13 +551,20 @@ ieee80211_input(struct ieee80211com *ic, struct sk_buff *skb,
 			}
 		}
 		if (skb != NULL) {
-			skb->dev = dev;
-			skb->protocol = eth_type_trans(skb, dev);
+		        skb->dev = dev;
 			if (ni->ni_vlan != 0 && ic->ic_vlgrp != NULL) {
 				/* attach vlan tag */
-				vlan_hwaccel_receive_skb(skb, ic->ic_vlgrp, ni->ni_vlan);
+			       skb->protocol = eth_type_trans(skb, dev);
+			       vlan_hwaccel_receive_skb(skb, ic->ic_vlgrp, ni->ni_vlan);
 			} else {
-				netif_rx(skb);
+#ifdef HAS_CU_SOFTMAC
+			        if (ic->ic_softmac_rxfunc) {
+				        ic->ic_softmac_rxfunc(ic->ic_softmac_rxpriv, skb);
+				} else {
+				        skb->protocol = eth_type_trans(skb, dev);
+			                netif_rx(skb);
+				}
+#endif
 			}
 			dev->last_rx = jiffies;
 		}

@@ -500,15 +500,9 @@ static int cheesymac_ath_deferalltxdone = CHEESYMAC_DEFAULT_DEFERALLTXDONE;
 #endif
 
 /*
- * Default root directory for cheesymac procfs entries
+ * Root directory for cheesymac procfs entries
  */
-static char *cheesymac_procfsroot = "cheesymac";
 static struct proc_dir_entry* cheesymac_procfsroot_handle = 0;
-
-/*
- * Default network interface to use as a softmac phy layer
- */
-static char* cheesymac_defaultphy = "ath0";
 
 /*
  * Default network prefix to use for the OS-exported network interface
@@ -526,15 +520,8 @@ module_param(cheesymac_deferrx, int, 0644);
 MODULE_PARM_DESC(cheesymac_deferrx, "Queue received packets and defer handling to tasklet");
 module_param(cheesymac_maxinflight, int, 0644);
 MODULE_PARM_DESC(cheesymac_maxinflight, "Limit the number of packets allowed to be in the pipeline for transmission");
-
 module_param(cheesymac_txbitrate, int, 0644);
 MODULE_PARM_DESC(cheesymac_txbitrate, "Default bitrate to use when transmitting packets");
-
-module_param(cheesymac_procfsroot, charp, 0444);
-MODULE_PARM_DESC(cheesymac_procfsroot, "Subdirectory in procfs to use for cheesymac parameters/statistics");
-
-module_param(cheesymac_defaultphy, charp, 0644);
-MODULE_PARM_DESC(cheesymac_defaultphy, "Network interface to use for SoftMAC PHY layer");
 
 /*
 ** SoftMAC Netif stuff
@@ -622,7 +609,7 @@ static int cheesymac_create_and_attach_netif(void *mypriv)
 
 static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst, struct sk_buff* skb)
 {
-  if (inst && skb) {
+  if (inst && (inst->myphy != inst->defaultphy)) {
     /*
      * XXX use of atheros-specific PHY calls!!!
      */
@@ -1022,16 +1009,13 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     macinfo->layer = &the_cheesymac;
     macinfo->mac_private = inst;
     snprintf(macinfo->name, CU_SOFTMAC_NAME_SIZE, cheesymac_netiftemplate, inst->instanceid);
-    
-    /* create procfs entries */
-    inst->my_procfs_root = cheesymac_procfsroot_handle;
-    cheesymac_make_procfs_entries(inst);
 
     /* release write lock */
-    write_unlock(&(inst->mac_busy));
+    write_unlock(&(inst->mac_busy));    
 
     /* create and attach to our Linux network interface */
     cheesymac_create_and_attach_netif(inst);
+
   }
   else {
     printk(KERN_ALERT "CheesyMAC create_instance: Unable to allocate memory!\n");
@@ -1105,11 +1089,21 @@ void *cu_softmac_cheesymac_new_instance(void *layer_priv)
 	return 0;
     }
 
+    /* write lock */
+    write_lock(&(inst->mac_busy));
+
     /* setup macinfo and register it with softmac */
     cu_softmac_macinfo_register(macinfo);
 
+    /* create procfs entries -- must come after cu_softmac_macinfo_register */
+    inst->my_procfs_root = cheesymac_procfsroot_handle;
+    cheesymac_make_procfs_entries(inst);
+
     /* instances don't keep references to themselves */
     cu_softmac_macinfo_free(macinfo);
+
+    /* release write lock */
+    write_unlock(&(inst->mac_busy));
 
     return macinfo;
 }
@@ -1129,14 +1123,10 @@ static int cheesymac_make_procfs_entries(CHEESYMAC_INSTANCE* inst)
     int i = 0;
     struct proc_dir_entry* curprocentry = 0;
     CHEESYMAC_INST_PROC_DATA* curprocdata = 0;
+    CU_SOFTMAC_MACLAYER_INFO *macinfo = inst->mymac;
 
-    /*
-     * First make the directory. For right now, we're just using the unique
-     * MAC layer ID that was assigned upon creation as a name.
-     */
-    snprintf(inst->procdirname,CHEESYMAC_PROCDIRNAME_LEN,"%d",inst->instanceid);
-    inst->my_procfs_dir = proc_mkdir(inst->procdirname,inst->my_procfs_root);
-    inst->my_procfs_dir->owner = THIS_MODULE;
+    /* root directory created by softmac_core */
+    inst->my_procfs_dir = macinfo->proc;
 
     /*
      * Make individual entries. Stop when we get either a null string
@@ -1188,7 +1178,7 @@ static int cheesymac_delete_procfs_entries(CHEESYMAC_INSTANCE* inst)
     CHEESYMAC_INST_PROC_DATA* proc_entry_data = 0;
 
     /*
-     * First remove individual entries and delete their data
+     * Remove individual entries and delete their data
      */
     list_for_each_safe(p,tmp,&inst->my_procfs_data) {
       proc_entry_data = list_entry(p,CHEESYMAC_INST_PROC_DATA,list);
@@ -1198,13 +1188,6 @@ static int cheesymac_delete_procfs_entries(CHEESYMAC_INSTANCE* inst)
       proc_entry_data = 0;
     }
 
-    /*
-     * Lastly, remove the directory
-     */
-    if (inst->my_procfs_root) {
-      remove_proc_entry(inst->procdirname,inst->my_procfs_root);
-      inst->my_procfs_root = 0;
-    }
   }
   return result;
 }
@@ -1543,13 +1526,11 @@ static int __init softmac_cheesymac_init(void)
 {
   printk(KERN_DEBUG "Loading CheesyMAC\n");
   
-  cheesymac_procfsroot_handle = proc_mkdir(cheesymac_procfsroot,0);
-  cheesymac_procfsroot_handle->owner = THIS_MODULE;
-
   strncpy(the_cheesymac.name, "cheesymac", CU_SOFTMAC_NAME_SIZE);
   the_cheesymac.cu_softmac_layer_new_instance = cu_softmac_cheesymac_new_instance;
   the_cheesymac.cu_softmac_layer_free_instance = cu_softmac_cheesymac_free_instance;
   cu_softmac_layer_register(&the_cheesymac);
+  cheesymac_procfsroot_handle = the_cheesymac.proc;
   
   return 0;
 }
@@ -1579,14 +1560,6 @@ static void __exit softmac_cheesymac_exit(void)
   }
   else {
     printk(KERN_DEBUG "CheesyMAC: No instances found\n");
-  }
-
-  /*
-   * Remove the root procfs directory very last of all...
-   */
-  if (cheesymac_procfsroot_handle) {
-    remove_proc_entry(cheesymac_procfsroot,0);
-    cheesymac_procfsroot_handle = 0;
   }
   
   cu_softmac_layer_unregister(&the_cheesymac);

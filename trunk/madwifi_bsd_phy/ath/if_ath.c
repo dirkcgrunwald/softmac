@@ -409,6 +409,12 @@ static void *cu_softmac_layer_new_instance_athmac(void *layer_private);
 static void cu_softmac_layer_free_instance_athphy(void *layer_private, void *instance);
 static void cu_softmac_layer_free_instance_athmac(void *layer_private, void *instance);
 
+static int ath_cu_softmac_athphy_make_procfs(struct ath_softc *sc);
+static int ath_cu_softmac_athphy_delete_procfs(struct ath_softc *sc);
+static int ath_cu_softmac_athphy_read_proc(char *page, char **start, off_t off, 
+					   int count, int *eof, void *data) ;
+static int ath_cu_softmac_athphy_write_proc(struct file *file, const char __user *buffer, 
+					    unsigned long count, void *data);
 /*
 **
 ** END OF HAS_CU_SOFTMAC CHUNK
@@ -1816,7 +1822,6 @@ ath_start(struct sk_buff *skb, struct net_device *dev)
 
 #endif	
 #endif
-	//printk("%s\n", __func__);
 	for (;;) {
 		/*
 		 * Grab a TX buffer and associated resources.
@@ -6216,28 +6221,404 @@ enum {
 	ATH_RAWDEV_TYPE = 19,
 	ATH_RXFILTER   = 20,
 	ATH_RADARSIM   = 21,
-#ifdef HAS_CU_SOFTMAC
-	ATH_CU_SOFTMAC = 22,
-	ATH_CU_SOFTMAC_RAW80211 = 23,
-	ATH_CU_SOFTMAC_PHOCUS_SETTLETIME = 24,
-	ATH_CU_SOFTMAC_PHOCUS_ENABLE = 25,
-	ATH_CU_SOFTMAC_PHOCUS_STATE = 26,
-	ATH_CU_SOFTMAC_WIFIVERSION = 27,
-	ATH_CU_SOFTMAC_WIFITYPE = 28,
-	ATH_CU_SOFTMAC_WIFISUBTYPE = 29,
-	ATH_CU_SOFTMAC_WIFIFLAGS = 30,
-	ATH_CU_SOFTMAC_NOAUTOCALIBRATE = 31,
-	ATH_CU_SOFTMAC_CALIBRATE_NOW = 32,
-	ATH_CU_SOFTMAC_PHY_NF_RAW = 33,
-#endif
 };
 
 #ifdef HAS_CU_SOFTMAC
+enum {
+	ATH_CU_SOFTMAC = 1,
+	ATH_CU_SOFTMAC_RAW80211 = 2,
+	ATH_CU_SOFTMAC_PHOCUS_SETTLETIME = 3,
+	ATH_CU_SOFTMAC_PHOCUS_ENABLE = 4,
+	ATH_CU_SOFTMAC_PHOCUS_STATE = 5,
+	ATH_CU_SOFTMAC_WIFIVERSION = 6,
+	ATH_CU_SOFTMAC_WIFITYPE = 7,
+	ATH_CU_SOFTMAC_WIFISUBTYPE = 8,
+	ATH_CU_SOFTMAC_WIFIFLAGS = 9,
+	ATH_CU_SOFTMAC_NOAUTOCALIBRATE = 10,
+	ATH_CU_SOFTMAC_CALIBRATE_NOW = 11,
+	ATH_CU_SOFTMAC_PHY_NF_RAW = 12,
+	ATH_CU_SOFTMAC_MAC = 13
+};
+
 enum {
   ATH_CU_SOFTMAC_TX_ON_TXINTR_NO = 0,
   ATH_CU_SOFTMAC_TX_ON_TXINTR_DEFER = 1,
   ATH_CU_SOFTMAC_TX_ON_TXINTR_IMMEDIATE = 2,
 };
+
+struct ath_cu_softmac_proc_data {
+    struct list_head list;
+    struct ath_softc* sc;
+    int id;
+    char name[CU_SOFTMAC_NAME_SIZE];
+    struct proc_dir_entry* parent;  
+};
+
+struct ath_cu_softmac_proc_entry {
+    const char *procname;
+    mode_t mode;
+    int ctl_name;
+};
+
+static const struct ath_cu_softmac_proc_entry athphy_proc_entries[] = {
+    { .ctl_name	= ATH_CU_SOFTMAC,
+      .procname	= "softmac_enable",
+      .mode	= 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_RAW80211,
+      .procname	= "raw_mode",
+      .mode	= 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_PHOCUS_SETTLETIME,
+      .procname	= "phocus_settletime",
+      .mode	= 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_PHY_NF_RAW,
+      .procname	= "nf_raw",
+      .mode	= 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_PHOCUS_ENABLE,
+      .procname	= "phocus_enable",
+      .mode     = 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_PHOCUS_STATE,
+      .procname	= "phocus_state",
+      .mode	= 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_WIFIVERSION,
+      .procname	= "wifiversion",
+      .mode	= 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_WIFITYPE,
+      .procname	= "wifitype",
+      .mode	= 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_WIFISUBTYPE,
+      .procname	= "wifisubtype",
+      .mode     = 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_WIFIFLAGS,
+      .procname	= "wififlags",
+      .mode	= 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_NOAUTOCALIBRATE,
+      .procname	= "noautocalibrate",
+      .mode	= 0644,
+    },
+    { .ctl_name	= ATH_CU_SOFTMAC_CALIBRATE_NOW,
+      .procname	= "calibrate_now",
+      .mode	= 0200,
+    },
+    { .ctl_name = ATH_CU_SOFTMAC_MAC,
+      .procname = "mac_layer",
+      .mode     = 0644,
+    },
+    /* terminator, don't remove */
+    { .ctl_name = 0,
+      .procname = 0,
+      .mode = 0,
+    },
+};
+
+static int
+ath_cu_softmac_athphy_make_procfs(struct ath_softc *sc)
+{
+    int i, result = 0;
+    struct proc_dir_entry *ent, *root;
+    struct ath_cu_softmac_proc_data *proc_data;
+
+    if (sc) {
+	root = sc->sc_cu_softmac_phy->proc;
+	
+	for (i=0; (athphy_proc_entries[i].procname && athphy_proc_entries[i].procname[0]); i++) {
+	    ent = create_proc_entry(athphy_proc_entries[i].procname,
+				    athphy_proc_entries[i].mode,
+				    root);
+	    ent->owner = THIS_MODULE;
+	    ent->read_proc = ath_cu_softmac_athphy_read_proc;
+	    ent->write_proc = ath_cu_softmac_athphy_write_proc;
+	    ent->data = kmalloc(sizeof(struct ath_cu_softmac_proc_data), GFP_ATOMIC);
+
+	    proc_data = ent->data;
+	    INIT_LIST_HEAD(&(proc_data->list));
+	    list_add_tail(&(proc_data->list), &(sc->sc_cu_softmac_procfs_data));
+	    proc_data->sc = sc;
+	    proc_data->id = athphy_proc_entries[i].ctl_name;
+	    strncpy(proc_data->name, athphy_proc_entries[i].procname, CU_SOFTMAC_NAME_SIZE);
+	    proc_data->parent = root;
+	}
+    }
+    return result;
+}
+
+static int
+ath_cu_softmac_athphy_delete_procfs(struct ath_softc *sc)
+{
+    int result = 0;
+    if (sc) {
+	struct list_head* tmp = 0;
+	struct list_head* p = 0;
+	struct ath_cu_softmac_proc_data* proc_entry_data = 0;
+
+	/*
+	 * Remove individual entries and delete their data
+	 */
+	list_for_each_safe(p, tmp, &(sc->sc_cu_softmac_procfs_data)) {
+	    proc_entry_data = list_entry(p, struct ath_cu_softmac_proc_data, list);
+	    list_del(p);
+	    remove_proc_entry(proc_entry_data->name, proc_entry_data->parent);
+	    kfree(proc_entry_data);
+	    proc_entry_data = 0;
+	}
+	
+    }
+    return result;
+}
+
+static int
+ath_cu_softmac_athphy_read_proc(char *page, char **start, off_t off, 
+				int count, int *eof, void *data) 
+{
+    int result = 0;
+    struct ath_cu_softmac_proc_data* procdata = data;
+    if (procdata && procdata->sc) {
+	struct ath_softc *sc = procdata->sc;
+	char* dest = (page + off);
+	int intval = 0;
+	
+	switch (procdata->id) {
+	case ATH_CU_SOFTMAC:
+	    intval = sc->sc_cu_softmac;
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;
+	    break;
+	case ATH_CU_SOFTMAC_RAW80211:
+	    // Allow softmac to operate on the whole 802.11 frame
+	    if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
+		intval = 1;
+	    }
+	    else {
+		intval = 0;
+	    }
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	    break;
+	case ATH_CU_SOFTMAC_PHOCUS_SETTLETIME:
+	    // allow phocus time to settle after steering
+	    intval =sc->sc_cu_softmac_phocus_settletime;
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	    break;    	    
+	case ATH_CU_SOFTMAC_PHY_NF_RAW:
+	    // get value for the PHY_NF register
+	    intval =OS_REG_READ(sc->sc_ah,39012);
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	    break;
+	case ATH_CU_SOFTMAC_PHOCUS_ENABLE:
+	    // enable use of phocus antenna
+	    intval =sc->sc_cu_softmac_phocus_enable;
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	    break;
+	case ATH_CU_SOFTMAC_PHOCUS_STATE:
+	    // configuration of phocus antenna
+	    intval =sc->sc_cu_softmac_phocus_state;
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	    break;
+	case ATH_CU_SOFTMAC_WIFIVERSION:
+	    // get the wifi version encap field
+	    intval =sc->sc_cu_softmac_wifictl0 & 0x3;
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	    break;
+	case ATH_CU_SOFTMAC_WIFITYPE:
+	    // get the wifi type encap field
+	    intval =(sc->sc_cu_softmac_wifictl0 >> 2) & 0x3;
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	    break;
+	case ATH_CU_SOFTMAC_WIFISUBTYPE:
+	    // get the wifi subtype encap field
+	    intval =(sc->sc_cu_softmac_wifictl0 >> 4) & 0xF;
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	    break;
+	case ATH_CU_SOFTMAC_WIFIFLAGS:
+	    // get the wifi flags encap field
+	    intval =sc->sc_cu_softmac_wifictl1;
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	    break;
+	case ATH_CU_SOFTMAC_NOAUTOCALIBRATE:
+	    intval =sc->sc_cu_softmac_noautocalibrate;
+	    break;
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	case ATH_CU_SOFTMAC_MAC:
+	    if (sc->sc_cu_softmac_mac == sc->sc_cu_softmac_defaultmac)
+		result = snprintf(dest, count, "0\n");
+	    else
+		result = snprintf(dest, count, "%s\n", sc->sc_cu_softmac_mac->name);
+	    *eof = 1;	
+	    break;
+	default:
+	    result = 0;
+	    *eof = 1;
+	    break;
+	}
+    }
+    return result;
+}
+
+static int
+ath_cu_softmac_athphy_write_proc(struct file *file, const char __user *buffer, 
+				 unsigned long count, void *data)
+{
+    int result = 0;
+    struct ath_cu_softmac_proc_data* procdata = data;
+    CU_SOFTMAC_MACLAYER_INFO *mac;
+
+    if (procdata && procdata->sc) {
+	struct ath_softc *sc = procdata->sc;
+	struct ath_hal *ah = sc->sc_ah;
+	static const int maxkdatalen = 256;
+	char kdata[maxkdatalen];
+	char* endp = 0;
+	long val = 0;
+	
+	/*
+	 * Drag the data over into kernel land
+	 */
+	if (maxkdatalen <= count) {
+	    copy_from_user(kdata,buffer,(maxkdatalen-1));
+	    kdata[maxkdatalen-1] = 0;
+	    result = (maxkdatalen-1);
+	}
+	else {
+	    copy_from_user(kdata,buffer,count);
+	    result = count;
+	}
+	
+	switch (procdata->id) {
+	case ATH_CU_SOFTMAC:
+	    // allow "softmac" access when in monitor mode
+	    val = simple_strtol(kdata, &endp, 10);
+	    sc->sc_cu_softmac = val;
+	    if (val) {
+		// Make sure we receive ALL the packets from the hal...
+		ath_hal_setrxfilter(ah,ATH_CU_SOFTMAC_HAL_RX_FILTER_ALLOWALL);
+	    }
+	    break;
+	case ATH_CU_SOFTMAC_RAW80211:
+	    // Allow softmac to operate on the
+	    // whole 802.11 frame.
+	    val = simple_strtol(kdata, &endp, 10);
+	    if (val) {
+		sc->sc_cu_softmac_options |= CU_SOFTMAC_ATH_RAW_MODE;
+	    }
+	    else {
+		sc->sc_cu_softmac_options &= ~CU_SOFTMAC_ATH_RAW_MODE;
+	    }
+	    break;
+	case ATH_CU_SOFTMAC_PHOCUS_SETTLETIME:
+	    // delay to use for phocus antenna
+	    val = simple_strtol(kdata, &endp, 10);
+	    sc->sc_cu_softmac_phocus_settletime = val;
+	    break;
+	case ATH_CU_SOFTMAC_PHY_NF_RAW:
+	    // set a value for the PHY_NF register
+	    val = simple_strtol(kdata, &endp, 10);
+	    OS_REG_WRITE(sc->sc_ah,39012,val);
+	    break;
+	case ATH_CU_SOFTMAC_PHOCUS_ENABLE:
+	    // enable the phocus antenna unit
+	    val = simple_strtol(kdata, &endp, 10);
+	    sc->sc_cu_softmac_phocus_enable = val;
+	    break;
+	case ATH_CU_SOFTMAC_PHOCUS_STATE:
+	    // configure the phocus antenna unit
+	    val = simple_strtol(kdata, &endp, 10);
+	    if (sc->sc_cu_softmac_phocus_enable && 
+		(val != sc->sc_cu_softmac_phocus_state)) {
+		sc->sc_cu_softmac_phocus_state = val;
+		cu_softmac_ath_set_phocus_state(sc->sc_cu_softmac_phocus_state, 
+						sc->sc_cu_softmac_phocus_settletime);
+	    }
+	    break;
+	case ATH_CU_SOFTMAC_WIFIVERSION:
+	    {
+		u_int8_t wctl0 = sc->sc_cu_softmac_wifictl0;
+		// set the wifi version encap field
+		val = simple_strtol(kdata, &endp, 10);
+		wctl0 &= ~(0x3); 
+		wctl0 |= (val & 0x3);
+		sc->sc_cu_softmac_wifictl0 = wctl0;
+	    }
+	    break;
+	case ATH_CU_SOFTMAC_WIFITYPE:
+	    {
+		u_int8_t wctl0 = sc->sc_cu_softmac_wifictl0;
+		// set the wifi type encap field
+		val = simple_strtol(kdata, &endp, 10);
+		wctl0 &= ~(0x3 << 2);
+		wctl0 |= ((val & 0x3) << 2);
+		sc->sc_cu_softmac_wifictl0 = wctl0;
+	    }
+	    break;
+	case ATH_CU_SOFTMAC_WIFISUBTYPE:
+	    {
+		u_int8_t wctl0 = sc->sc_cu_softmac_wifictl0;
+		val = simple_strtol(kdata, &endp, 10);
+		// set the wifi subtype encap field
+		wctl0 &= ~(0xF << 4);
+		wctl0 |= ((val & 0xF) << 4);
+		sc->sc_cu_softmac_wifictl0 = wctl0;
+	    }
+	    break;
+	case ATH_CU_SOFTMAC_WIFIFLAGS:
+	    {
+		val = simple_strtol(kdata, &endp, 10);
+		sc->sc_cu_softmac_wifictl1 = (val & 0xFF);
+	    }
+	    break;
+	case ATH_CU_SOFTMAC_NOAUTOCALIBRATE:
+	    val = simple_strtol(kdata, &endp, 10);
+	    sc->sc_cu_softmac_noautocalibrate = val;
+	    break;
+	case ATH_CU_SOFTMAC_CALIBRATE_NOW:
+	    ath_calibrate_now(&(sc->sc_dev));
+	    break;
+	case ATH_CU_SOFTMAC_MAC:
+	    if (result > CU_SOFTMAC_NAME_SIZE)
+		result = CU_SOFTMAC_NAME_SIZE;
+	    kdata[result-1] = 0;
+
+	    /* detach any mac already attached */
+	    sc->sc_cu_softmac_mac->cu_softmac_mac_detach(sc->sc_cu_softmac_mac->mac_private);
+	    cu_softmac_phy_detach_ath(sc);
+
+	    /* try to attach a new mac */
+	    mac = cu_softmac_macinfo_get_by_name(kdata);
+	    if (mac) {
+		cu_softmac_phy_attach_ath(sc, mac);
+		mac->cu_softmac_mac_attach(mac->mac_private, sc->sc_cu_softmac_phy);
+		cu_softmac_macinfo_free(mac);
+		printk("%s: attached to %s\n", sc->sc_cu_softmac_phy->name, kdata);
+	    }
+
+	    break;
+	default:
+	    break;
+	}
+    }
+    else {
+	result = count;
+    }
+    
+    return result;
+}
 #endif
 
 static int
@@ -6361,86 +6742,6 @@ ATH_SYSCTL_DECL(ath_sysctl_halparam, ctl, write, filp, buffer, lenp, ppos)
 			case ATH_RADARSIM:
 				ATH_SCHEDULE_TQUEUE (&sc->sc_radartq, &needmark);
 				break;
-#ifdef HAS_CU_SOFTMAC
-			case ATH_CU_SOFTMAC:
-			  // allow "softmac" access when in monitor mode
-			  sc->sc_cu_softmac = val;
-			  if (val) { //&& (sc->sc_ic.ic_opmode == IEEE80211_M_MONITOR)) {
-			    // Already in monitor mode? Make sure we
-			    // receive ALL the packets from the hal...
-			    ath_hal_setrxfilter(ah,ATH_CU_SOFTMAC_HAL_RX_FILTER_ALLOWALL);
-			  }
-			  break;
-			case ATH_CU_SOFTMAC_RAW80211:
-			  // Allow softmac to operate on the
-			  // whole 802.11 frame.
-			  if (val) {
-			    sc->sc_cu_softmac_options |= CU_SOFTMAC_ATH_RAW_MODE;
-			  }
-			  else {
-			    sc->sc_cu_softmac_options &= ~CU_SOFTMAC_ATH_RAW_MODE;
-			  }
-			  break;
-			case ATH_CU_SOFTMAC_PHOCUS_SETTLETIME:
-			  // delay to use for phocus antenna
-			  sc->sc_cu_softmac_phocus_settletime = val;
-			  break;
-			case ATH_CU_SOFTMAC_PHY_NF_RAW:
-			  // set a value for the PHY_NF register
-			  OS_REG_WRITE(sc->sc_ah,39012,val);
-			  break;
-			case ATH_CU_SOFTMAC_PHOCUS_ENABLE:
-			  // enable the phocus antenna unit
-			  sc->sc_cu_softmac_phocus_enable = val;
-			  break;
-			case ATH_CU_SOFTMAC_PHOCUS_STATE:
-			  // configure the phocus antenna unit
-			  if (sc->sc_cu_softmac_phocus_enable && 
-			      (val != sc->sc_cu_softmac_phocus_state)) {
-			    sc->sc_cu_softmac_phocus_state = val;
-			    cu_softmac_ath_set_phocus_state(sc->sc_cu_softmac_phocus_state, 
-							    sc->sc_cu_softmac_phocus_settletime);
-			  }
-			  break;
-			case ATH_CU_SOFTMAC_WIFIVERSION:
-			  {
-			    u_int8_t wctl0 = sc->sc_cu_softmac_wifictl0;
-			    // set the wifi version encap field
-			    wctl0 &= ~(0x3); 
-			    wctl0 |= (val & 0x3);
-			    sc->sc_cu_softmac_wifictl0 = wctl0;
-			  }
-			  break;
-			case ATH_CU_SOFTMAC_WIFITYPE:
-			  {
-			    u_int8_t wctl0 = sc->sc_cu_softmac_wifictl0;
-			    // set the wifi type encap field
-			    wctl0 &= ~(0x3 << 2);
-			    wctl0 |= ((val & 0x3) << 2);
-			    sc->sc_cu_softmac_wifictl0 = wctl0;
-			  }
-			  break;
-			case ATH_CU_SOFTMAC_WIFISUBTYPE:
-			  {
-			    u_int8_t wctl0 = sc->sc_cu_softmac_wifictl0;
-			    // set the wifi subtype encap field
-			    wctl0 &= ~(0xF << 4);
-			    wctl0 |= ((val & 0xF) << 4);
-			    sc->sc_cu_softmac_wifictl0 = wctl0;
-			  }
-			  break;
-			case ATH_CU_SOFTMAC_WIFIFLAGS:
-			  {
-			    sc->sc_cu_softmac_wifictl1 = (val & 0xFF);
-			  }
-			  break;
-			case ATH_CU_SOFTMAC_NOAUTOCALIBRATE:
-			  sc->sc_cu_softmac_noautocalibrate = val;
-			  break;
-			case ATH_CU_SOFTMAC_CALIBRATE_NOW:
-			  ath_calibrate_now(&(sc->sc_dev));
-			  break;
-#endif
 			default:
 				return -EINVAL;
 			}
@@ -6520,55 +6821,6 @@ ATH_SYSCTL_DECL(ath_sysctl_halparam, ctl, write, filp, buffer, lenp, ppos)
 		case ATH_RADARSIM:
 			val = 0;
 			break;
-#ifdef HAS_CU_SOFTMAC
-		case ATH_CU_SOFTMAC:
-		  val = sc->sc_cu_softmac;
-		  break;
-		case ATH_CU_SOFTMAC_RAW80211:
-		  // Allow softmac to operate on the whole 802.11 frame
-		  if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
-		    val = 1;
-		  }
-		  else {
-		    val = 0;
-		  }
-		  break;
-		case ATH_CU_SOFTMAC_PHOCUS_SETTLETIME:
-		  // allow phocus time to settle after steering
-		  val = sc->sc_cu_softmac_phocus_settletime;
-		  break;
-		case ATH_CU_SOFTMAC_PHY_NF_RAW:
-		  // get value for the PHY_NF register
-		  val = OS_REG_READ(sc->sc_ah,39012);
-		  break;
-		case ATH_CU_SOFTMAC_PHOCUS_ENABLE:
-		  // enable use of phocus antenna
-		  val = sc->sc_cu_softmac_phocus_enable;
-		  break;
-		case ATH_CU_SOFTMAC_PHOCUS_STATE:
-		  // configuration of phocus antenna
-		  val = sc->sc_cu_softmac_phocus_state;
-		  break;
-		case ATH_CU_SOFTMAC_WIFIVERSION:
-		  // get the wifi version encap field
-		  val = sc->sc_cu_softmac_wifictl0 & 0x3;
-		  break;
-		case ATH_CU_SOFTMAC_WIFITYPE:
-		  // get the wifi type encap field
-		  val = (sc->sc_cu_softmac_wifictl0 >> 2) & 0x3;
-		  break;
-		case ATH_CU_SOFTMAC_WIFISUBTYPE:
-		  // get the wifi subtype encap field
-		  val = (sc->sc_cu_softmac_wifictl0 >> 4) & 0xF;
-		  break;
-		case ATH_CU_SOFTMAC_WIFIFLAGS:
-		  // get the wifi flags encap field
-		  val = sc->sc_cu_softmac_wifictl1;
-		  break;
-		case ATH_CU_SOFTMAC_NOAUTOCALIBRATE:
-		  val = sc->sc_cu_softmac_noautocalibrate;
-		  break;
-#endif
 		default:
 			return -EINVAL;
 		}
@@ -6692,68 +6944,6 @@ static const ctl_table ath_sysctl_template[] = {
 	  .mode		= 0644,
 	  .proc_handler	= ath_sysctl_halparam
 	},
-#ifdef HAS_CU_SOFTMAC
-	{ .ctl_name	= ATH_CU_SOFTMAC,
-	  .procname	= "cu_softmac",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_RAW80211,
-	  .procname	= "cu_softmac_raw80211",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_PHOCUS_SETTLETIME,
-	  .procname	= "cu_softmac_phocus_settletime",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_PHY_NF_RAW,
-	  .procname	= "cu_softmac_phy_nf_raw",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_PHOCUS_ENABLE,
-	  .procname	= "cu_softmac_phocus_enable",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_PHOCUS_STATE,
-	  .procname	= "cu_softmac_phocus_state",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_WIFIVERSION,
-	  .procname	= "cu_softmac_wifiversion",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_WIFITYPE,
-	  .procname	= "cu_softmac_wifitype",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_WIFISUBTYPE,
-	  .procname	= "cu_softmac_wifisubtype",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_WIFIFLAGS,
-	  .procname	= "cu_softmac_wififlags",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_NOAUTOCALIBRATE,
-	  .procname	= "cu_softmac_noautocalibrate",
-	  .mode		= 0644,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-	{ .ctl_name	= ATH_CU_SOFTMAC_CALIBRATE_NOW,
-	  .procname	= "cu_softmac_calibrate_now",
-	  .mode		= 0200,
-	  .proc_handler	= ath_sysctl_halparam
-	},
-#endif
 	{ 0 }
 };
 
@@ -7150,9 +7340,9 @@ cu_softmac_phy_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
   int error = CU_SOFTMAC_PHY_SENDPACKET_OK;
 
   atomic_inc(&(sc->sc_cu_softmac_tx_packets_inflight));
-  //if (!(sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
+  if (!(sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
     skb = ath_cu_softmac_encapsulate(sc,skb);
-  //}
+  }
   if ((max_packets_inflight > 0) &&
       (max_packets_inflight < atomic_read(&(sc->sc_cu_softmac_tx_packets_inflight)))) {
     // Too many pending packets -- bail out...
@@ -7218,7 +7408,9 @@ cu_softmac_phy_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
   //ieee80211_free_node(ic, ni);
   // Decrement inflight packet count on failure
   atomic_dec(&(sc->sc_cu_softmac_tx_packets_inflight));
-  skb = cu_softmac_ath_decapsulate(sc,skb);
+  if (!(sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
+      skb = cu_softmac_ath_decapsulate(sc,skb);
+  }
   if (bf != NULL) {
     ATH_TXBUF_LOCK_BH(sc);
     STAILQ_INSERT_TAIL(&sc->sc_txbuf, bf, bf_list);
@@ -7661,7 +7853,7 @@ static void
 ath_cu_softmac_rx_tasklet(TQUEUE_ARG data) {
   struct net_device *dev = (struct net_device *)data;
   struct ath_softc* sc = dev->priv;
-  int goagain = 0;
+  int goagain = 0; 
   //printk(KERN_DEBUG "if_ath: in rx_tasklet\n");
   goagain = ath_cu_softmac_handle_rx(dev,0);
   if (goagain) {
@@ -8167,9 +8359,13 @@ cu_softmac_layer_new_instance_athphy(void *layer_private)
 	    phyinfo->layer = &the_athphy;
 	    phyinfo->phy_private = sc;
 	    cu_softmac_ath_set_phyinfo_functions(phyinfo);
-	    
+
 	    /* register with softmac */
 	    cu_softmac_phyinfo_register(phyinfo);
+
+	    /* create softmac specific procfs entries */
+	    INIT_LIST_HEAD(&sc->sc_cu_softmac_procfs_data);
+	    ath_cu_softmac_athphy_make_procfs(sc);
 	    
 	    /* an instance doesn't hold a reference to itself */
 	    cu_softmac_phyinfo_free(phyinfo);
@@ -8187,6 +8383,9 @@ cu_softmac_layer_free_instance_athphy(void *layer_private, void *phy)
     struct ath_softc *sc = phyinfo->phy_private;
     if (phyinfo == sc->sc_cu_softmac_phy)
 	cu_softmac_phy_detach_ath(sc);
+
+    /* delete softmac specific procfs entries */
+    ath_cu_softmac_athphy_delete_procfs(sc);
 }
 
 /*
@@ -8218,6 +8417,7 @@ cu_softmac_mac_packet_tx_ath(void *me, struct sk_buff* skb, int intop)
 static int
 cu_softmac_mac_packet_rx_ath(void *me, struct sk_buff* skb, int intop)
 {
+    //printk("%s\n", __func__);
     struct ath_softc* sc = (struct ath_softc*)me;
     //struct cu_softmac_athmac_instance *inst = sc->sc_cu_softmac_mac_inst;
     struct ath_buf *bf = *((struct ath_buf **)(skb->cb+ATH_CU_SOFTMAC_CB_RX_BF0));
@@ -8360,6 +8560,24 @@ cu_softmac_mac_attach_ath(void *me, CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
   return result;
 }
 
+static int
+cu_softmac_mac_set_rx_func_ath(void *me, CU_SOFTMAC_MAC_RX_FUNC rxfunc, void *rxpriv)
+{
+    //printk("%s\n", __func__);
+    struct ath_softc* sc = (struct ath_softc*)me;
+    struct ieee80211com *ic = &sc->sc_ic;
+    struct cu_softmac_athmac_instance *inst = sc->sc_cu_softmac_mac_inst;
+    int result = 0;
+    write_lock(&(inst->lock));
+    
+    ic->ic_softmac_rxfunc = rxfunc;
+    ic->ic_softmac_rxpriv = rxpriv;
+
+    write_unlock(&(inst->lock));
+    
+    return result;
+}
+
 static void
 cu_softmac_ath_set_macinfo_functions(CU_SOFTMAC_MACLAYER_INFO *macinfo)
 {
@@ -8369,7 +8587,7 @@ cu_softmac_ath_set_macinfo_functions(CU_SOFTMAC_MACLAYER_INFO *macinfo)
     //macinfo->cu_softmac_mac_work = cu_softmac_mac_work_ath;
     macinfo->cu_softmac_mac_attach = cu_softmac_mac_attach_ath;
     macinfo->cu_softmac_mac_detach = cu_softmac_mac_detach_ath;
-    //macinfo->cu_softmac_mac_set_rx_func = cu_softmac_mac_set_rx_func_ath;
+    macinfo->cu_softmac_mac_set_rx_func = cu_softmac_mac_set_rx_func_ath;
     //macinfo->cu_softmac_mac_set_unload_notify_func = cu_softmac_mac_set_unload_notify_func_ath;
 }
 

@@ -37,9 +37,12 @@
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
 #include "cu_softmac_api.h"
+#include "cu_softmac_ath_api.h"
 #include "softmac_netif.h"
 
 MODULE_LICENSE("GPL");
+
+struct rawmac_inst_proc_data;
 
 /* private instance data */
 struct rawmac_instance {
@@ -53,8 +56,15 @@ struct rawmac_instance {
     void *netif_rx_priv;
 
     int id;
+    int encap_type; // RAWMAC_ENCAP_*
+    struct proc_dir_entry *procfs_dir;
+    struct list_head procfs_data;
+
     rwlock_t lock;
 };
+
+#define RAWMAC_ENCAP_NONE 0
+#define RAWMAC_ENCAP_RADIOTAP 1
 
 /* XXX tcpdump/libpcap do not tolerate variable-length headers,
  * yet, so we pad every radiotap header to 64 bytes. Ugh.
@@ -235,11 +245,193 @@ static const char *rawmac_name = "rawmac";
  */
 static CU_SOFTMAC_LAYER_INFO the_rawmac;
 
+struct rawmac_inst_proc_data {
+    struct list_head list;
+    struct rawmac_instance *inst;
+    int id;
+    char name[CU_SOFTMAC_NAME_SIZE];
+    struct proc_dir_entry *parent;
+};
+
+enum {
+    RAWMAC_INST_PROC_MAC,
+    RAWMAC_INST_PROC_TYPE
+};
+
+struct rawmac_inst_proc_entry {
+    const char *name;
+    mode_t mode;
+    int id;
+};
+
+static const struct rawmac_inst_proc_entry rawmac_inst_proc_entries[] = {
+    {
+	"mac",
+	0644,
+	RAWMAC_INST_PROC_MAC
+    },
+    {
+	"type",
+	0644,
+	RAWMAC_INST_PROC_TYPE
+    },
+    /* terminator, don't remove */
+    {
+	0,
+	0,
+	-1
+    },
+};
+
+static void rawmac_encapsulate_mac(void *me, char *mac_instance_name);
+
+static int
+rawmac_inst_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data) 
+{
+    int result = 0;
+    struct rawmac_inst_proc_data* procdata = data;
+    if (procdata && procdata->inst) {
+	struct rawmac_instance* inst = procdata->inst;
+	char* dest = (page + off);
+	int intval = 0;
+	
+	switch (procdata->id) {
+	case RAWMAC_INST_PROC_TYPE:
+	    read_lock(&(inst->lock));
+	    intval = inst->encap_type;
+	    read_unlock(&(inst->lock));
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;
+	    break;
+	case RAWMAC_INST_PROC_MAC:
+	    read_lock(&(inst->lock));
+	    if (inst->macinfo_real)
+		result = snprintf(dest,count, "%s\n", inst->macinfo_real->name);
+	    read_unlock(&(inst->lock));
+	    *eof = 1;
+	    break;
+	default:
+	    result = 0;
+	    *eof = 1;
+	    break;
+	}
+    }
+    return result;
+}
+
+static int
+rawmac_inst_write_proc(struct file *file, const char __user *buffer, 
+		       unsigned long count, void *data)
+{
+    int result = 0;
+    struct rawmac_inst_proc_data* procdata = data;
+    unsigned long flags;
+
+    if (procdata && procdata->inst) {
+	struct rawmac_instance* inst = procdata->inst;
+	static const int maxkdatalen = 256;
+	char kdata[maxkdatalen];
+	char* endp = 0;
+	long intval = 0;
+	
+	/*
+	 * Drag the data over into kernel land
+	 */
+	if (maxkdatalen <= count) {
+	    copy_from_user(kdata,buffer,(maxkdatalen-1));
+	    kdata[maxkdatalen-1] = 0;
+	    result = (maxkdatalen-1);
+	}
+	else {
+	    copy_from_user(kdata,buffer,count);
+	    result = count;
+	}
+	
+	switch (procdata->id) {
+	case RAWMAC_INST_PROC_TYPE:
+	    intval = simple_strtol(kdata, &endp, 10);
+	    write_lock_irqsave(&(inst->lock), flags);
+	    inst->encap_type = intval;
+	    write_unlock_irqrestore(&(inst->lock), flags);
+	    break;
+	case RAWMAC_INST_PROC_MAC:
+	    if (result > CU_SOFTMAC_NAME_SIZE)
+		result = CU_SOFTMAC_NAME_SIZE;
+	    kdata[result-1] = 0;
+	    rawmac_encapsulate_mac(inst, kdata);
+	    break;
+	default:
+	    break;
+	}
+    }
+    else {
+	result = count;
+    }
+    
+    return result;
+}
+
+static int
+rawmac_make_procfs_entries(struct rawmac_instance *inst)
+{
+    int i, result = 0;
+    struct proc_dir_entry *ent;
+    struct rawmac_inst_proc_data *proc_data;
+
+    if (inst) {
+	inst->procfs_dir = inst->macinfo->proc;
+	
+	for (i=0; (rawmac_inst_proc_entries[i].name && rawmac_inst_proc_entries[i].name[0]); i++) {
+	    ent = create_proc_entry(rawmac_inst_proc_entries[i].name,
+				    rawmac_inst_proc_entries[i].mode,
+				    inst->procfs_dir);
+	    ent->owner = THIS_MODULE;
+	    ent->read_proc = rawmac_inst_read_proc;
+	    ent->write_proc = rawmac_inst_write_proc;
+	    ent->data = kmalloc(sizeof(struct rawmac_inst_proc_data), GFP_ATOMIC);
+
+	    proc_data = ent->data;
+	    INIT_LIST_HEAD(&(proc_data->list));
+	    list_add_tail(&(proc_data->list), &(inst->procfs_data));
+	    proc_data->inst = inst;
+	    proc_data->id = rawmac_inst_proc_entries[i].id;
+	    strncpy(proc_data->name, rawmac_inst_proc_entries[i].name, CU_SOFTMAC_NAME_SIZE);
+	    proc_data->parent = inst->procfs_dir;
+	}
+    }
+    return result;
+}
+
+static int
+rawmac_delete_procfs_entries(struct rawmac_instance *inst)
+{
+    int result = 0;
+    if (inst) {
+	struct list_head* tmp = 0;
+	struct list_head* p = 0;
+	struct rawmac_inst_proc_data* proc_entry_data = 0;
+	
+	/*
+	 * Remove individual entries and delete their data
+	 */
+	list_for_each_safe(p, tmp, &(inst->procfs_data)) {
+	    proc_entry_data = list_entry(p, struct rawmac_inst_proc_data, list);
+	    list_del(p);
+	    remove_proc_entry(proc_entry_data->name, proc_entry_data->parent);
+	    kfree(proc_entry_data);
+	    proc_entry_data = 0;
+	}
+	
+    }
+    return result;
+}
+
+
 /* attach to a phy layer */
 static int
 rawmac_mac_attach(void *me, CU_SOFTMAC_PHYLAYER_INFO *phyinfo)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     struct rawmac_instance *inst = me;
     int ret = -1;
     unsigned long flags;
@@ -257,7 +449,7 @@ rawmac_mac_attach(void *me, CU_SOFTMAC_PHYLAYER_INFO *phyinfo)
 static int
 rawmac_mac_detach(void *me)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     struct rawmac_instance *inst = me;
     unsigned long flags;
 
@@ -275,7 +467,7 @@ rawmac_mac_set_netif_rx_func(void *me,
 				CU_SOFTMAC_MAC_RX_FUNC rxfunc, 
 				void *rxpriv) 
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     struct rawmac_instance *inst = me;
     unsigned long flags;
 
@@ -283,6 +475,9 @@ rawmac_mac_set_netif_rx_func(void *me,
 
     inst->netif_rx = rxfunc;
     inst->netif_rx_priv = rxpriv;
+
+    if (!inst->netif_rx && inst->netif)
+	rawmac_mac_set_netif_rx_func(inst, cu_softmac_netif_rx_packet, inst->netif);
 
     write_unlock_irqrestore(&(inst->lock), flags);
 
@@ -312,48 +507,52 @@ rawmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 }
 
 /* called by mac layer as netif_rx */
-static void
+static int
 rawmac_macdone(void *me, struct sk_buff *skb)
 {
     printk("%s\n", __func__);
-
     struct rawmac_instance *inst = me;
+
     read_lock(&(inst->lock));
 
-    /* encapsulate with radiotap header */
-    struct ath_rx_radiotap_header *th;
-
-    if (skb_headroom(skb) < sizeof(struct ath_rx_radiotap_header) &&
-	pskb_expand_head(skb, 
-			 sizeof(struct ath_rx_radiotap_header), 
-			 0, GFP_ATOMIC)) {
-	printk("%s: couldn't pskb_expand_head\n", __func__);
-	printk("%s: XXX leak!\n", __func__);
+    if (!inst->netif) 
 	goto out;
-    }
+
+    if (inst->encap_type == RAWMAC_ENCAP_RADIOTAP) {
+	/* encapsulate with radiotap header */
+	struct ath_rx_radiotap_header *th;
+	
+	if (skb_headroom(skb) < sizeof(struct ath_rx_radiotap_header) &&
+	    pskb_expand_head(skb, 
+			     sizeof(struct ath_rx_radiotap_header), 
+			     0, GFP_ATOMIC)) {
+	    printk("%s: couldn't pskb_expand_head\n", __func__);
+	    printk("%s: XXX leak!\n", __func__);
+	    goto out;
+	}
 		
-    th = (struct ath_rx_radiotap_header *) skb_push(skb, sizeof(struct ath_rx_radiotap_header));
-    memset(th, 0, sizeof(struct ath_rx_radiotap_header));
-    th->wr_ihdr.it_version = 0;
-    th->wr_ihdr.it_len = sizeof(struct ath_rx_radiotap_header);
-    th->wr_ihdr.it_present = ATH_RX_RADIOTAP_PRESENT;
-    th->wr_flags = IEEE80211_RADIOTAP_F_FCS;
-    th->wr_rate = cu_softmac_ath_get_rx_bitrate(inst->phyinfo->phy_private, skb);
-    th->wr_chan_freq 
-	= ieee80211_ieee2mhz( cu_softmac_ath_get_rx_channel(inst->phyinfo->phy_private, skb) );
-    //th->wr_chan_flags = ic->ic_ibss_chan->ic_flags;
-    th->wr_antenna =  cu_softmac_ath_get_rx_antenna(inst->phyinfo->phy_private, skb);
-    th->wr_antsignal = cu_softmac_ath_get_rx_rssi(inst->phyinfo->phy_private, skb);
-    th->wr_rx_flags = 0;
-    if (cu_softmac_ath_has_rx_crc_error(inst->phyinfo->phy_private, skb))
-	th->wr_rx_flags |= IEEE80211_RADIOTAP_F_RX_BADFCS;
+	th = (struct ath_rx_radiotap_header *)skb_push(skb, sizeof(struct ath_rx_radiotap_header));
+	memset(th, 0, sizeof(struct ath_rx_radiotap_header));
+	th->wr_ihdr.it_version = 0;
+	th->wr_ihdr.it_len = sizeof(struct ath_rx_radiotap_header);
+	th->wr_ihdr.it_present = ATH_RX_RADIOTAP_PRESENT;
+	th->wr_flags = IEEE80211_RADIOTAP_F_FCS;
+	th->wr_rate = cu_softmac_ath_get_rx_bitrate(inst->phyinfo->phy_private, skb);
+	th->wr_chan_freq 
+	    = ieee80211_ieee2mhz( cu_softmac_ath_get_rx_channel(inst->phyinfo->phy_private, skb) );
+	//th->wr_chan_flags = ic->ic_ibss_chan->ic_flags;
+	th->wr_antenna =  cu_softmac_ath_get_rx_antenna(inst->phyinfo->phy_private, skb);
+	th->wr_antsignal = cu_softmac_ath_get_rx_rssi(inst->phyinfo->phy_private, skb);
+	th->wr_rx_flags = 0;
+	if (cu_softmac_ath_has_rx_crc_error(inst->phyinfo->phy_private, skb))
+	    th->wr_rx_flags |= IEEE80211_RADIOTAP_F_RX_BADFCS;
+    }
 
     /* send it up the stack */
-    printk("%s %d\n", __func__, skb->len);
-    
     inst->netif_rx(inst->netif_rx_priv, skb);
  out:
     read_unlock(&(inst->lock));
+    return 0;
 }
 
 static int
@@ -380,7 +579,7 @@ rawmac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 static int 
 rawmac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif, void* priv, struct sk_buff *skb)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     struct rawmac_instance *inst = priv;
     if (inst) {
@@ -402,12 +601,12 @@ rawmac_create_and_attach_netif(void *me)
 
     checknet = dev_get_by_name(macinfo->name);
     if (checknet) {
-	printk("%s: attaching to %s\n", __func__, macinfo->name);
+	//printk("%s: attaching to %s\n", __func__, macinfo->name);
 	inst->netif = cu_softmac_netif_from_dev(checknet);
 	dev_put(checknet);
 	cu_softmac_netif_set_tx_callback(inst->netif, rawmac_netif_txhelper, (void *)inst);
     } else {
-	printk("%s: creating %s\n", __func__, macinfo->name);
+	//printk("%s: creating %s\n", __func__, macinfo->name);
 	inst->netif = cu_softmac_netif_create_eth(macinfo->name, 0, rawmac_netif_txhelper, inst);
     }
 
@@ -423,11 +622,11 @@ rawmac_create_and_attach_netif(void *me)
 static int 
 rawmac_fakephy_sendpacket(void *me, int max_inflight, struct sk_buff *skb)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     struct rawmac_instance *inst = (struct rawmac_instance *)me;
     CU_SOFTMAC_PHYLAYER_INFO *phy;
-    int txresult;
+    int txresult = 0;
 
     read_lock(&(inst->lock));
 
@@ -444,7 +643,7 @@ rawmac_fakephy_alloc_skb(void *me, int len)
 {
     struct rawmac_instance *inst = me;
     CU_SOFTMAC_PHYLAYER_INFO *phy;
-    struct sk_buff *skb;
+    struct sk_buff *skb = 0;
 
     read_lock(&(inst->lock));
 
@@ -456,11 +655,42 @@ rawmac_fakephy_alloc_skb(void *me, int len)
     return skb;
 }
 
+static void
+rawmac_encapsulate_mac(void *me, char *mac_instance_name)
+{
+    unsigned long flags;
+    struct rawmac_instance *inst = me;
+
+    write_lock_irqsave(&(inst->lock), flags);
+
+    if (inst->macinfo_real) {
+	printk("%s: detaching mac %s\n", inst->macinfo->name, inst->macinfo_real->name);
+	inst->macinfo_real->cu_softmac_mac_detach(inst->macinfo_real->mac_private);
+	inst->macinfo_real->cu_softmac_mac_set_rx_func(inst->macinfo_real->mac_private, 0, 0);
+	cu_softmac_macinfo_free(inst->macinfo_real);
+	inst->macinfo_real = 0;
+    }
+
+    if (mac_instance_name) {
+	inst->macinfo_real = cu_softmac_macinfo_get_by_name(mac_instance_name);
+	if (inst->macinfo_real) {
+	    inst->macinfo_real->cu_softmac_mac_set_rx_func(inst->macinfo_real->mac_private,
+							   rawmac_macdone, me);
+	    inst->macinfo_real->cu_softmac_mac_attach(inst->macinfo_real->mac_private,
+						      inst->phyinfo_fake);
+	    printk("%s: encapsulating mac %s\n", inst->macinfo->name, inst->macinfo_real->name);
+	} else {
+	    printk("%s: error unable to encapsulate mac %s\n", __func__, mac_instance_name);
+	}
+    }
+    write_unlock_irqrestore(&(inst->lock), flags);
+}
+
 /* create and return a new rawmac instance */
 static void *
 rawmac_new_instance (void *layer_priv)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
 
     struct rawmac_instance *inst;
     void *ret = 0;
@@ -498,21 +728,15 @@ rawmac_new_instance (void *layer_priv)
 	inst->phyinfo_fake->cu_softmac_phy_sendpacket = rawmac_fakephy_sendpacket;
 	inst->phyinfo_fake->cu_softmac_phy_alloc_skb = rawmac_fakephy_alloc_skb;
 
-	/* */
-	inst->macinfo_real = cu_softmac_layer_new_instance("athmac");
-	if (inst->macinfo_real) {
-	    cu_softmac_macinfo_get(inst->macinfo_real);
-	    inst->macinfo_real->cu_softmac_mac_set_rx_func(inst->macinfo_real->mac_private,
-							   rawmac_macdone,
-							   (void *)inst);
-	    inst->macinfo_real->cu_softmac_mac_attach(inst->macinfo_real->mac_private,
-						      inst->phyinfo_fake);
-	} else {
-	    printk("%s: error unable to attach to mac\n", __func__);
-	}
-
 	/* register with softmac */
 	cu_softmac_macinfo_register(inst->macinfo);
+
+	/* */
+	INIT_LIST_HEAD(&inst->procfs_data);
+	rawmac_make_procfs_entries(inst);
+
+	/* */
+	rawmac_encapsulate_mac(inst, "cheesy1");
 
 	/* we've registered with softmac, decrement the ref count */
 	cu_softmac_macinfo_free(inst->macinfo);
@@ -523,29 +747,29 @@ rawmac_new_instance (void *layer_priv)
 }
 
 /* called by softmac_core when a rawmac CU_SOFTMAC_MACLAYER_INFO
- * instance is deallocated 
+ * instance (inst->macinfo) is deallocated 
  */
 static void
 rawmac_free_instance (void *layer_priv, void *info)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     CU_SOFTMAC_MACLAYER_INFO *macinfo = info;
     struct rawmac_instance *inst = macinfo->mac_private;
 
-    if (inst->phyinfo)
-	cu_softmac_phyinfo_free(inst->phyinfo);
+    /* detach and free phyinfo, phyinfo_fake, macinfo_real */
+    rawmac_mac_detach(inst);
+    rawmac_encapsulate_mac(inst, 0);
+    cu_softmac_phyinfo_free(inst->phyinfo_fake);
+    
+    rawmac_delete_procfs_entries(inst);
 
-    /* detach and free phyinfo_fake */
-    inst->macinfo_real->cu_softmac_mac_detach(inst->macinfo_real->mac_private);
-    if (inst->phyinfo_fake)
-	cu_softmac_phyinfo_free(inst->phyinfo_fake);
     kfree(inst);
 }
 
 static int __init 
 softmac_rawmac_init(void)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     /* register the rawmac layer with softmac */
     strncpy(the_rawmac.name, rawmac_name, CU_SOFTMAC_NAME_SIZE);
     the_rawmac.cu_softmac_layer_new_instance = rawmac_new_instance;
@@ -558,7 +782,7 @@ softmac_rawmac_init(void)
 static void __exit 
 softmac_rawmac_exit(void)
 {
-    printk("%s\n", __func__);
+    //printk("%s\n", __func__);
     /* tell softmac we're leaving */
     cu_softmac_layer_unregister((CU_SOFTMAC_LAYER_INFO *)&the_rawmac);
 }

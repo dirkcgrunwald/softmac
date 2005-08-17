@@ -311,29 +311,13 @@ softmac_procfs_write(struct file *file, const char __user *buffer,
 
 /* functions for /proc/softmac/layers */
 
-static int
-softmac_procfs_layer_read(char *page, char **start, off_t off, 
-			  int count, int *eof, void *data)
-{
-    return 0;
-}
-
-static int
-softmac_procfs_layer_write(struct file *file, const char __user *buffer,
-			  unsigned long count, void *data)
-{
-    return count;
-}
-
-static void
+static void*
 softmac_procfs_layer_add(CU_SOFTMAC_LAYER_INFO *info)
 {
     struct proc_dir_entry* ent;
-    ent = create_proc_entry(info->name, 0644, softmac_procfs_layers);
+    ent = proc_mkdir(info->name, softmac_procfs_layers);
     ent->owner = THIS_MODULE;
-    ent->data = info;
-    ent->read_proc = softmac_procfs_layer_read;
-    ent->write_proc = softmac_procfs_layer_write;
+    return (void *)ent;
 }
 
 static void
@@ -344,31 +328,15 @@ softmac_procfs_layer_del(CU_SOFTMAC_LAYER_INFO *info)
 
 /* functions for /proc/softmac/insts */
 
-static int
-softmac_procfs_inst_read(char *page, char **start, off_t off, 
-			 int count, int *eof, void *data)
-{
-    return 0;
-}
-
-static int
-softmac_procfs_inst_write(struct file *file, const char __user *buffer,
-			  unsigned long count, void *data)
-{
-    return count;
-}
-
-static void
+static void *
 softmac_procfs_inst_add(void *inst)
 {
     CU_SOFTMAC_MACLAYER_INFO *macinfo = inst;
 
     struct proc_dir_entry* ent;
-    ent = create_proc_entry(macinfo->name, 0644, softmac_procfs_insts);
+    ent = proc_mkdir(macinfo->name, softmac_procfs_insts);
     ent->owner = THIS_MODULE;
-    ent->data = inst;
-    ent->read_proc = softmac_procfs_inst_read;
-    ent->write_proc = softmac_procfs_inst_write;
+    return (void *)ent;
 }
 
 static void
@@ -584,7 +552,7 @@ cu_softmac_layer_register(CU_SOFTMAC_LAYER_INFO *info)
     }
     
     /* add it to /proc/softmac/layers and to internal list */
-    softmac_procfs_layer_add(info);
+    info->proc = softmac_procfs_layer_add(info);
     hlist_add_head(&info->name_hlist, head);
     printk("%s registered layer %s\n", __func__, info->name);
 }
@@ -602,6 +570,7 @@ cu_softmac_layer_unregister(CU_SOFTMAC_LAYER_INFO *info)
 	    printk("%s unregistered layer %s\n", __func__, info->name);
 	    /* remove from procfs */
 	    softmac_procfs_layer_del(info);
+	    info->proc = 0;
 	    /* remove from internal list */
 	    hlist_del(&l->name_hlist);
 	    return;
@@ -675,7 +644,7 @@ cu_softmac_phyinfo_register(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
     /* increment reference count */
     phyinfo = cu_softmac_phyinfo_get(phyinfo);
     /* add to /proc/softmac/insts */
-    softmac_procfs_inst_add(phyinfo);
+    phyinfo->proc = softmac_procfs_inst_add(phyinfo);
     /* add to the phyinfo list */
     hlist_add_head(&phyinfo->name_hlist, head);
 
@@ -694,6 +663,7 @@ cu_softmac_phyinfo_unregister(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
 	if (m == phyinfo) {
 	    /* remove from /proc/softmac/insts */
 	    softmac_procfs_inst_del(m);
+	    m->proc = 0;
 	    /* remove from internal pyinfo list */
 	    hlist_del(&m->name_hlist);
 	    /* decrement reference count */
@@ -801,7 +771,7 @@ cu_softmac_macinfo_register(CU_SOFTMAC_MACLAYER_INFO* macinfo)
     /* increment reference count */
     macinfo = cu_softmac_macinfo_get(macinfo);
     /* add to /proc/softmac/insts */
-    softmac_procfs_inst_add(macinfo);
+    macinfo->proc = softmac_procfs_inst_add(macinfo);
     /* add to the macinfo list */
     hlist_add_head(&macinfo->name_hlist, head);
 
@@ -820,6 +790,7 @@ cu_softmac_macinfo_unregister(CU_SOFTMAC_MACLAYER_INFO* macinfo)
 	if (m == macinfo) {
 	    /* remove from /proc/softmac/insts */
 	    softmac_procfs_inst_del(m);
+	    m->proc = 0;
 	    /* remove from internal list */
 	    hlist_del(&m->name_hlist);
 	    /* decrement reference count */
@@ -917,6 +888,27 @@ static void softmac_cheesyath_stop()
 static void softmac_test(void)
 {
     printk("%s\n", __func__);
+    
+    if (testmac || testphy) {
+	printk("%s cheesymac or athphy instance already exists\n", __func__);
+	return;
+    }
+
+    testmac = cu_softmac_layer_new_instance("rawmac");
+    testphy = cu_softmac_layer_new_instance("athphy");
+    
+    if (!(testmac && testphy)) {
+	printk("%s failed to create rawmac or athphy instance\n", __func__);
+	return;
+    }
+
+    cu_softmac_macinfo_get(testmac);
+    cu_softmac_phyinfo_get(testphy);
+
+    testmac->cu_softmac_mac_attach(testmac->mac_private, testphy);
+    testphy->cu_softmac_phy_attach(testphy->phy_private, testmac);
+
+    printk("%s started\n", __func__);
 }
 /* XXX end test code */
 

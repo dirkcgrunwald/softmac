@@ -647,7 +647,7 @@ metamac_netif_rxhelper(void* priv,
 		       int intop) {
   CHEESYMAC_INSTANCE* inst = priv;
  
-  if (inst) {
+  if (inst && inst->myphy) {
     /*
      * Call the cheesymac tx function. The "intop" indicator
      * is always zero for the particular netif implementation
@@ -674,9 +674,11 @@ metamac_netif_rxhelper(void* priv,
     	    }
 	}
     }
- }
- (inst->myphy->cu_softmac_phy_free_skb)(inst->myphy->phy_private, packet);
- return 0;
+    (inst->myphy->cu_softmac_phy_free_skb)(inst->myphy->phy_private, packet);
+  } else {
+    dev_kfree_skb(packet);
+  }
+  return 0;
 }
 
 
@@ -836,7 +838,7 @@ static int cheesymac_create_and_attach_netif(void *mypriv)
 
 static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst, struct sk_buff* skb)
 {
-  if (inst && skb) {
+  if (inst && inst->myphy) {
     /*
      * XXX use of atheros-specific PHY calls!!!
      */
@@ -848,13 +850,12 @@ static void cu_softmac_cheesymac_prep_skb(CHEESYMAC_INSTANCE* inst, struct sk_bu
 static struct sk_buff* multimac_phy_alloc_skb(void *mydata, int len)
 {
     CHEESYMAC_INSTANCE* inst = mydata;
-    CU_SOFTMAC_PHYLAYER_INFO *phy;
-    struct sk_buff *skb;
+    struct sk_buff *skb = 0;
 
     read_lock(&(inst->mac_busy));
 
-    phy = inst->myphy;
-    skb = phy->cu_softmac_phy_alloc_skb(phy->phy_private, len);
+    if (inst->myphy)
+	skb = inst->myphy->cu_softmac_phy_alloc_skb(inst->myphy->phy_private, len);
 
     read_unlock(&(inst->mac_busy));
 
@@ -1331,30 +1332,17 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     snprintf(inst->multimac_fake_phy->name, CU_SOFTMAC_NAME_SIZE, "%s_fake_phy", macinfo->name);
     inst->multimac_fake_phy->cu_softmac_phy_sendpacket = multimac_phy_sendpacket;
     inst->multimac_fake_phy->cu_softmac_phy_alloc_skb = multimac_phy_alloc_skb;
+
+    // RR-Thing - Remove!    
+    currentmacname = kmalloc(CU_SOFTMAC_NAME_SIZE, GFP_KERNEL);
+    sprintf(currentmacname, "mac1");
     
     /* release write lock */
     write_unlock(&(inst->mac_busy));
 
     /* create and attach to our Linux network interface */
     cheesymac_create_and_attach_netif(inst);
-    
-    CU_SOFTMAC_PHYLAYER_INFO* phy;
-    phy = cu_softmac_phyinfo_get( cu_softmac_layer_new_instance("athphy") );
 
-    if (!phy) {
-	printk("%s error: couldn't get phy instance!\n", __func__);
-	return 0;
-    }
-
-    write_lock(&(inst->mac_busy));
-
-    inst->myphy = phy;
-    phy->cu_softmac_phy_attach(phy->phy_private, macinfo);
-    write_unlock(&(inst->mac_busy));
-
-    // RR-Thing - Remove!    
-    currentmacname = kmalloc(CU_SOFTMAC_NAME_SIZE, GFP_KERNEL);
-    sprintf(currentmacname, "mac1");
   }
   else {
     printk(KERN_ALERT "CheesyMAC create_instance: Unable to allocate memory!\n");
@@ -1858,12 +1846,10 @@ cu_softmac_mac_detach_cheesymac(void* handle) {
   int result = 0;
 
   write_lock(&(inst->mac_busy));
-  if (inst && inst->myphy) {
-      inst->myphy->cu_softmac_phy_detach(inst->myphy->phy_private);
-      cu_softmac_phyinfo_free(inst->myphy);
-      inst->myphy = 0;
-      //printk(KERN_DEBUG "CheesyMAC: mac_detach -- done\n");
-  }
+
+  cu_softmac_phyinfo_free(inst->myphy);
+  inst->myphy = 0;
+
   write_unlock(&(inst->mac_busy));
 
   return result;
