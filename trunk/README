@@ -7,7 +7,9 @@ $LastChangedDate$
 The latest version of this file can be found at:
 https://systems.cs.colorado.edu/svn/softmac/trunk/README
 
-This file describes the basics of Softmac.
+This file describes the basics of Softmac.  This document assumes the reader 
+is familiar with networking concepts, configuring wireless networking in Linux,
+and the madwifi driver.
 
 Softmac is an extension to the Madwifi [http://madwifi.sourceforge.org] driver
 for the Atheros 802.11a/b/g networking cards that provides more control over
@@ -33,4 +35,50 @@ https://systems.cs.colorado.edu/svn/softmac/trunk/INSTALL
 Running SoftMAC
 ---------------
 
-TODO
+The easiest way to get Softmac up and running is to use the 
+'load_softmac_base.sh' script found in the scripts directory of the
+Softmac SVN repository.  This script takes care of loading the required
+kernel modules and getting the Softmac phy layer up and running.
+
+Steps 1-3 below are provided by the 'load_softmac_base.sh' script.
+
+1) First load the Softmac version of the Madwifi driver.  Stopping here, one
+   would have the same functionality as the stock Madwifi driver.  In general,
+   Softmac operates with the card in monitor mode.
+
+  # /sbin/modprobe ath_pci
+  # /sbin/ifconfig ath0 up
+  # /sbin/iwconfig ath0 mode monitor
+
+2) The Softmac version of the Madwifi driver provides a low level interface 
+   to the physical wireless device.  Softmac calls this interface 'athphy'.  
+   athphy is a Softmac PHY layer.  We must tell Softmac to create an instance
+   of athphy.  Most Softmac configuration is done through the /proc filesystem.
+
+  # echo athphy > /proc/softmac/create_instance
+
+   The instance of athphy just created will be called 'athphy0'.  Instances
+   of Softmac layers (MAC or PHY) typically store configuration information
+   in /proc/softmac/insts/<instance name>.  
+
+3) We're almost running Softmac.  All that remains is to tell athphy that we
+   want to run as Softmac instead of using the stock Madwifi functionality.
+
+  # echo 1 > /proc/softmac/insts/athphy0/softmac_enable
+
+4) Now we need an instance of a MAC layer.  This example will use the 
+   'cheesymac' MAC layer.
+
+  # /sbin/modprobe softmac_cheesymac
+  # echo cheesymac > /proc/softmac/create_instance
+
+   This creates an instance of cheesymac that is probably called 'cheesy1'.
+   MAC layers will typically provide their own network device that is used in
+   place of the standard 'ath0' device.  Usually the device will have the same
+   name as the MAC Layer instance.  Configure the device.
+
+  # /sbin/ifconfig cheesy1 192.168.1.2
+
+5) Connect the MAC layer to the PHY layer and you're done!
+
+  # echo cheesy1 > /proc/softmac/insts/athphy0/mac_layer
