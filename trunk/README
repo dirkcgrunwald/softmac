@@ -73,9 +73,9 @@ Steps 1-3 below are provided by the 'load_softmac_base.sh' script.
   # echo cheesymac > /proc/softmac/create_instance
 
    This creates an instance of cheesymac that is probably called 'cheesy1'.
-   MAC layers will typically provide their own network device that is used in
-   place of the standard 'ath0' device.  Usually the device will have the same
-   name as the MAC Layer instance.  Configure the device.
+   MAC layers will typically provide their own network interface that is used 
+   in place of the standard 'ath0' interface.  Usually the interface will have
+   the same name as the MAC Layer instance.  Configure the network interface.
 
   # /sbin/ifconfig cheesy1 192.168.1.2
 
