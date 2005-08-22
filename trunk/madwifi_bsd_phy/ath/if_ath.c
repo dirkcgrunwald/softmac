@@ -401,6 +401,8 @@ static int cu_softmac_mac_packet_rx_ath(void *me, struct sk_buff* skb, int intop
 
 static CU_SOFTMAC_LAYER_INFO the_athmac; // atheros 802.11 mac
 static CU_SOFTMAC_LAYER_INFO the_athphy; // atheros softmac phy
+static int ath_cu_softmac_layers_registered;
+
 /*
 ** Exported via pointers from the softmac CU_SOFTMAC_LAYER_INFO structure
 */
@@ -460,8 +462,8 @@ ath_attach(u_int16_t devid, struct net_device *dev)
 
 	atomic_set(&(sc->sc_cu_softmac_tx_packets_inflight),0);
 	sc->sc_cu_softmac_mac_lock = RW_LOCK_UNLOCKED;
-	sc->sc_cu_softmac_defaultmac = cu_softmac_macinfo_alloc();
-	sc->sc_cu_softmac_mac = sc->sc_cu_softmac_defaultmac;
+	sc->sc_cu_softmac_defaultmac = 0;
+	sc->sc_cu_softmac_mac = 0;
 	sc->sc_cu_softmac_phy = 0;
 	sc->sc_cu_softmac_txlatency = ATH_CU_SOFTMAC_DEFAULT_TXLATENCY;
 	sc->sc_cu_softmac_phocus_settletime = ATH_CU_SOFTMAC_DEFAULT_PHOCUS_SETTLETIME;
@@ -472,8 +474,8 @@ ath_attach(u_int16_t devid, struct net_device *dev)
 	sc->sc_cu_softmac_mac_inst = kmalloc(sizeof(struct cu_softmac_athmac_instance),GFP_ATOMIC);
 	memset(sc->sc_cu_softmac_mac_inst, 0, sizeof(struct cu_softmac_athmac_instance));
 	sc->sc_cu_softmac_mac_inst->lock = RW_LOCK_UNLOCKED;
-	sc->sc_cu_softmac_mac_inst->defaultphy = cu_softmac_phyinfo_alloc();
-	sc->sc_cu_softmac_mac_inst->phyinfo = sc->sc_cu_softmac_mac_inst->defaultphy;
+	sc->sc_cu_softmac_mac_inst->defaultphy = 0;
+	sc->sc_cu_softmac_mac_inst->phyinfo = 0;
 
 	ath_cu_softmac_register(sc);
 #endif
@@ -8344,23 +8346,26 @@ ath_cu_softmac_getheadertype_cb(struct ath_softc* sc,struct sk_buff* skb) {
 static void*
 cu_softmac_layer_new_instance_athphy(void *layer_private)
 {
-    struct ath_softc *sc = layer_private;
+    struct list_head *list = layer_private;
+    struct list_head *p;
+    struct ath_softc *sc;
     CU_SOFTMAC_PHYLAYER_INFO *phyinfo;
 
-    // XXX does madwifi support multiple instances? one for now...
-    phyinfo = sc->sc_cu_softmac_phy;
-    if (!phyinfo) {
-	/* setup phyinfo */
-	phyinfo = cu_softmac_phyinfo_alloc();
-	if (phyinfo) { 
-	    sc->sc_cu_softmac_phy = phyinfo;
+    list_for_each(p, list) {
+	sc = list_entry(p, struct ath_softc, sc_cu_softmac_phy_list);
+	if (!sc->sc_cu_softmac_phy) {
+
+	    /* default do nothing mac to avoid null checks */
+	    sc->sc_cu_softmac_defaultmac = cu_softmac_macinfo_alloc();
+	    sc->sc_cu_softmac_mac = sc->sc_cu_softmac_defaultmac;
 	    
-	    strncpy(phyinfo->name, "athphy0"/*sc->sc_dev.name*/, CU_SOFTMAC_NAME_SIZE);
+	    /* create a public interface and register it with softmac */
+	    sc->sc_cu_softmac_phy = cu_softmac_phyinfo_alloc();
+	    phyinfo = sc->sc_cu_softmac_phy;
+	    snprintf(phyinfo->name, CU_SOFTMAC_NAME_SIZE, "athphy%d", sc->sc_cu_softmac_phy_id);
 	    phyinfo->layer = &the_athphy;
 	    phyinfo->phy_private = sc;
 	    cu_softmac_ath_set_phyinfo_functions(phyinfo);
-
-	    /* register with softmac */
 	    cu_softmac_phyinfo_register(phyinfo);
 
 	    /* create softmac specific procfs entries */
@@ -8369,9 +8374,11 @@ cu_softmac_layer_new_instance_athphy(void *layer_private)
 	    
 	    /* an instance doesn't hold a reference to itself */
 	    cu_softmac_phyinfo_free(phyinfo);
+	    
+	    return phyinfo;
 	}
     }
-    return phyinfo;
+    return 0;
 }
 
 
@@ -8381,11 +8388,16 @@ cu_softmac_layer_free_instance_athphy(void *layer_private, void *phy)
 {
     CU_SOFTMAC_PHYLAYER_INFO *phyinfo = phy;
     struct ath_softc *sc = phyinfo->phy_private;
-    if (phyinfo == sc->sc_cu_softmac_phy)
-	cu_softmac_phy_detach_ath(sc);
 
     /* delete softmac specific procfs entries */
     ath_cu_softmac_athphy_delete_procfs(sc);
+
+    cu_softmac_phy_detach_ath(sc);
+    cu_softmac_phyinfo_free(sc->sc_cu_softmac_phy);
+    sc->sc_cu_softmac_phy = 0;
+    cu_softmac_macinfo_free(sc->sc_cu_softmac_defaultmac);
+    sc->sc_cu_softmac_defaultmac = 0;
+    sc->sc_cu_softmac_mac = 0;
 }
 
 /*
@@ -8594,36 +8606,32 @@ cu_softmac_ath_set_macinfo_functions(CU_SOFTMAC_MACLAYER_INFO *macinfo)
 static void*
 cu_softmac_layer_new_instance_athmac(void *layer_private)
 {
-    struct ath_softc *sc = (struct ath_softc *)layer_private;
-    struct cu_softmac_athmac_instance *inst = sc->sc_cu_softmac_mac_inst;
-    struct ieee80211com *ic = &sc->sc_ic;
-    struct net_device *dev = ic->ic_dev;    
-    CU_SOFTMAC_MACLAYER_INFO *macinfo;
+    struct list_head *list = layer_private;
+    struct list_head *p;
+    struct ath_softc *sc;
+    struct cu_softmac_athmac_instance *inst;
 
-    if (!inst) {
-	printk("%s error: !inst\n", __func__);
-	return 0;
-    }
-    
-    macinfo = inst->macinfo;
-    if (!macinfo) {
-	/* setup macinfo */
-	macinfo = cu_softmac_macinfo_alloc();
-	if (macinfo) {
-	    inst->macinfo = macinfo;
+    list_for_each(p, list) {
+	sc = list_entry(p, struct ath_softc, sc_cu_softmac_mac_list);
+	inst = sc->sc_cu_softmac_mac_inst;
+	if (!inst->macinfo) {
 
-	    strncpy(macinfo->name, "athmac0", CU_SOFTMAC_NAME_SIZE);
-	    macinfo->layer = &the_athmac;
-	    macinfo->mac_private = sc;
-	    cu_softmac_ath_set_macinfo_functions(macinfo);
-	    
-	    /* register with softmac */
-	    cu_softmac_macinfo_register(macinfo);
-	    cu_softmac_macinfo_free(macinfo);
+	    /* default do nothing mac to avoid null checks */
+	    inst->defaultphy = cu_softmac_phyinfo_alloc();
+	    inst->phyinfo = inst->defaultphy;
+
+	    /* create a public interface and register it with softmac */
+	    inst->macinfo = cu_softmac_macinfo_alloc();
+	    snprintf(inst->macinfo->name, CU_SOFTMAC_NAME_SIZE, "athmac%d", inst->id);
+	    inst->macinfo->layer = &the_athmac;
+	    inst->macinfo->mac_private = sc;
+	    cu_softmac_ath_set_macinfo_functions(inst->macinfo);
+	    cu_softmac_macinfo_register(inst->macinfo);
+	    cu_softmac_macinfo_free(inst->macinfo);
+	    return inst->macinfo;
 	}
-	dev->hard_start_xmit = ath_cu_softmac_athmac_start;
     }
-    return macinfo;
+    return 0;
 }
 
 /* Called when a Atheros CU_SOFTMAC_MACLAYER_INFO structure is being deallocated */
@@ -8633,35 +8641,60 @@ cu_softmac_layer_free_instance_athmac(void *layer_private, void *mac)
     CU_SOFTMAC_MACLAYER_INFO *macinfo = mac;
     struct ath_softc *sc = (struct ath_softc *)macinfo->mac_private;
     struct cu_softmac_athmac_instance *inst = sc->sc_cu_softmac_mac_inst;
-    if (macinfo == inst->macinfo)
-	cu_softmac_mac_detach_ath(sc);
+
+    cu_softmac_mac_detach_ath(sc);
+    cu_softmac_phyinfo_free(inst->defaultphy);
+    inst->phyinfo = 0;
+    inst->defaultphy = 0;
+    cu_softmac_macinfo_free(inst->macinfo);
+    inst->macinfo = 0;
 }
 
+/* called by ath_attach */
 static void
 ath_cu_softmac_register(struct ath_softc* sc)
 {
-    /* register the athphy layer with softmac */
-    strncpy(the_athphy.name, "athphy", CU_SOFTMAC_NAME_SIZE);
-    the_athphy.cu_softmac_layer_new_instance = cu_softmac_layer_new_instance_athphy;
-    the_athphy.cu_softmac_layer_free_instance = cu_softmac_layer_free_instance_athphy;
-    the_athphy.layer_private = sc;
+    struct list_head *list;
 
-    cu_softmac_layer_register(&the_athphy);
+    if (ath_cu_softmac_layers_registered == 0) {
+	/* register the athphy layer with softmac */
+	strncpy(the_athphy.name, "athphy", CU_SOFTMAC_NAME_SIZE);
+	the_athphy.cu_softmac_layer_new_instance = cu_softmac_layer_new_instance_athphy;
+	the_athphy.cu_softmac_layer_free_instance = cu_softmac_layer_free_instance_athphy;
+	list = (struct list_head *)kmalloc(sizeof(struct list_head), GFP_ATOMIC);
+	INIT_LIST_HEAD(list);
+	the_athphy.layer_private = list;
+	cu_softmac_layer_register(&the_athphy);
 
-    /* register the athmac layer with softmac */
-    strncpy(the_athmac.name, "athmac", CU_SOFTMAC_NAME_SIZE);
-    the_athmac.cu_softmac_layer_new_instance = cu_softmac_layer_new_instance_athmac;
-    the_athmac.cu_softmac_layer_free_instance = cu_softmac_layer_free_instance_athmac;
-    the_athmac.layer_private = sc;
+	/* register the athmac layer with softmac */
+	strncpy(the_athmac.name, "athmac", CU_SOFTMAC_NAME_SIZE);
+	the_athmac.cu_softmac_layer_new_instance = cu_softmac_layer_new_instance_athmac;
+	the_athmac.cu_softmac_layer_free_instance = cu_softmac_layer_free_instance_athmac;
+	list = (struct list_head *)kmalloc(sizeof(struct list_head), GFP_ATOMIC);
+	INIT_LIST_HEAD(list);
+	the_athmac.layer_private = list;
+	cu_softmac_layer_register(&the_athmac);
+    }
 
-    cu_softmac_layer_register(&the_athmac);
+    /* setup the instance and put it on the list of athmac instances */
+    sc->sc_cu_softmac_mac_inst->id = ath_cu_softmac_layers_registered;
+    INIT_LIST_HEAD(&sc->sc_cu_softmac_mac_list);
+    list_add(&sc->sc_cu_softmac_mac_list, (struct list_head *)the_athmac.layer_private);
+    
+    /* setup the instance and put it on the list of athphy instances */
+    sc->sc_cu_softmac_phy_id = ath_cu_softmac_layers_registered;
+    INIT_LIST_HEAD(&sc->sc_cu_softmac_phy_list);
+    list_add(&sc->sc_cu_softmac_phy_list, (struct list_head *)the_athphy.layer_private);
+
+    ath_cu_softmac_layers_registered++;
 }
-
+    
 static void
 ath_cu_softmac_unregister(struct ath_softc* sc)
 {
     cu_softmac_layer_unregister(&the_athphy);
     cu_softmac_layer_unregister(&the_athmac);
+    ath_cu_softmac_layers_registered = 0;
 }
 
 EXPORT_SYMBOL(cu_softmac_ath_set_phyinfo_functions);

@@ -365,8 +365,11 @@ struct ath_softc {
   CU_SOFTMAC_MACLAYER_INFO *sc_cu_softmac_mac;
   CU_SOFTMAC_MACLAYER_INFO *sc_cu_softmac_defaultmac;
   CU_SOFTMAC_PHYLAYER_INFO *sc_cu_softmac_phy;
+  int sc_cu_softmac_phy_id; /* instance id */
   struct cu_softmac_athmac_instance *sc_cu_softmac_mac_inst;
   struct list_head sc_cu_softmac_procfs_data;
+  struct list_head sc_cu_softmac_phy_list;
+  struct list_head sc_cu_softmac_mac_list;
   /*
    * Sometimes, e.g. when we are detaching a particular MAC layer,
    * we want to make sure that we've got exclusive access to the
