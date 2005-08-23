@@ -181,6 +181,15 @@ cu_softmac_netif_from_dev(struct net_device* netdev) {
 }
 
 /*
+ * Get a dev from netif handle
+ */
+struct net_device *
+cu_softmac_dev_from_netif(CU_SOFTMAC_NETIF_HANDLE nif) {
+    CU_SOFTMAC_NETIF_INSTANCE* inst = nif;  
+    return (&(inst->netdev));
+}
+
+/*
  * Detach the current client
  */
 void
@@ -458,6 +467,7 @@ static void __exit softmac_netif_exit(void)
 
 EXPORT_SYMBOL(cu_softmac_netif_create_eth);
 EXPORT_SYMBOL(cu_softmac_netif_from_dev);
+EXPORT_SYMBOL(cu_softmac_dev_from_netif);
 EXPORT_SYMBOL(cu_softmac_netif_destroy);
 EXPORT_SYMBOL(cu_softmac_netif_rx_packet);
 EXPORT_SYMBOL(cu_softmac_netif_set_tx_callback);

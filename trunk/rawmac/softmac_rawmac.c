@@ -24,7 +24,7 @@
  ****************************************************************************/
 
 /*
- * This is the RawMAC 
+ * This is RawMAC.  rawmac provides athraw compatibility.
  */
 
 #include <linux/module.h>
@@ -36,6 +36,7 @@
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
+#include <linux/if_arp.h>
 #include "cu_softmac_api.h"
 #include "cu_softmac_ath_api.h"
 #include "softmac_netif.h"
@@ -56,7 +57,7 @@ struct rawmac_instance {
     void *netif_rx_priv;
 
     int id;
-    int encap_type; // RAWMAC_ENCAP_*
+    int encap_type; // ARPHRD_IEEE80211*
     struct proc_dir_entry *procfs_dir;
     struct list_head procfs_data;
 
@@ -65,6 +66,10 @@ struct rawmac_instance {
 
 #define RAWMAC_ENCAP_NONE 0
 #define RAWMAC_ENCAP_RADIOTAP 1
+
+/*
+ * radiotap stuff pulled from madwifi
+ */
 
 /* XXX tcpdump/libpcap do not tolerate variable-length headers,
  * yet, so we pad every radiotap header to 64 bytes. Ugh.
@@ -237,6 +242,86 @@ struct ath_rx_radiotap_header {
 #define       IEEE80211_RADIOTAP_F_FCS        0x10/* frame includes FCS */
 #define       IEEE80211_RADIOTAP_F_RX_BADFCS  0x0001      /* frame failed crc check */
 
+#define NUM_RADIOTAP_ELEMENTS 18
+
+static int radiotap_elem_to_bytes[NUM_RADIOTAP_ELEMENTS] = 
+	{8, /* IEEE80211_RADIOTAP_TSFT */
+	 1, /* IEEE80211_RADIOTAP_FLAGS */
+	 1, /* IEEE80211_RADIOTAP_RATE */
+	 4, /* IEEE80211_RADIOTAP_CHANNEL */
+	 2, /* IEEE80211_RADIOTAP_FHSS */
+	 1, /* IEEE80211_RADIOTAP_DBM_ANTSIGNAL */
+	 1, /* IEEE80211_RADIOTAP_DBM_ANTNOISE */
+	 2, /* IEEE80211_RADIOTAP_LOCK_QUALITY */
+	 2, /* IEEE80211_RADIOTAP_TX_ATTENUATION */
+	 2, /* IEEE80211_RADIOTAP_DB_TX_ATTENUATION */
+	 1, /* IEEE80211_RADIOTAP_DBM_TX_POWER */
+	 1, /* IEEE80211_RADIOTAP_ANTENNA */
+	 1, /* IEEE80211_RADIOTAP_DB_ANTSIGNAL */
+	 1, /* IEEE80211_RADIOTAP_DB_ANTNOISE */
+	 2, /* IEEE80211_RADIOTAP_RX_FLAGS */
+	 2, /* IEEE80211_RADIOTAP_TX_FLAGS */
+	 1, /* IEEE80211_RADIOTAP_RTS_RETRIES */
+	 1, /* IEEE80211_RADIOTAP_DATA_RETRIES */
+	};
+
+
+/*
+ * the following rt_* functions deal with verifying that a valid
+ * radiotap header is on a packet as well as functions to extracting
+ * what information is included.
+ * XXX maybe these should go in ieee_radiotap.c
+ */
+static int rt_el_present(struct ieee80211_radiotap_header *th, u_int32_t element)
+{
+	if (element > NUM_RADIOTAP_ELEMENTS)
+		return 0;
+	return th->it_present & (1 << element);
+}
+
+static int rt_check_header(struct ieee80211_radiotap_header *th, int len) 
+{
+	int bytes = 0;
+	int x = 0;
+	if (th->it_version != 0) 
+		return 0;
+
+	if (th->it_len < sizeof(struct ieee80211_radiotap_header))
+		return 0;
+	
+	for (x = 0; x < NUM_RADIOTAP_ELEMENTS; x++) {
+		if (rt_el_present(th, x))
+		    bytes += radiotap_elem_to_bytes[x];
+	}
+
+	if (th->it_len < sizeof(struct ieee80211_radiotap_header) + bytes) 
+		return 0;
+	
+	if (th->it_len > len)
+		return 0;
+
+	return 1;
+}
+
+static u_int8_t *rt_el_offset(struct ieee80211_radiotap_header *th, u_int32_t element) {
+	unsigned int x = 0;
+	u_int8_t *offset = ((u_int8_t *) th) + sizeof(struct ieee80211_radiotap_header);
+	for (x = 0; x < NUM_RADIOTAP_ELEMENTS && x < element; x++) {
+		if (rt_el_present(th, x))
+			offset += radiotap_elem_to_bytes[x];
+	}
+
+	return offset;
+}
+
+#ifndef ARPHRD_IEEE80211_RADIOTAP
+#define ARPHRD_IEEE80211_RADIOTAP 803 /* IEEE 802.11 + radiotap header */
+#endif /* ARPHRD_IEEE80211_RADIOTAP */
+
+/*
+ * end radiotap stuff pulled from madwifi
+ */
+
 static int rawmac_next_id;
 static const char *rawmac_name = "rawmac";
 
@@ -298,7 +383,20 @@ rawmac_inst_read_proc(char *page, char **start, off_t off, int count, int *eof, 
 	switch (procdata->id) {
 	case RAWMAC_INST_PROC_TYPE:
 	    read_lock(&(inst->lock));
-	    intval = inst->encap_type;
+	    switch (inst->encap_type) {
+	    case ARPHRD_ETHER:
+		intval = 0;
+		break;
+		/*
+	    case ARPHRD_IEEE80211_PRISM:
+		intval = 1;
+		break;
+		*/
+	    case ARPHRD_IEEE80211_RADIOTAP:
+		intval = 2;
+		break;
+
+	    }
 	    read_unlock(&(inst->lock));
 	    result = snprintf(dest,count, "%d\n", intval);
 	    *eof = 1;
@@ -348,12 +446,28 @@ rawmac_inst_write_proc(struct file *file, const char __user *buffer,
 	}
 	
 	switch (procdata->id) {
-	case RAWMAC_INST_PROC_TYPE:
+	case RAWMAC_INST_PROC_TYPE: {
+	    struct net_device *dev;
 	    intval = simple_strtol(kdata, &endp, 10);
 	    write_lock_irqsave(&(inst->lock), flags);
-	    inst->encap_type = intval;
+	    switch (intval) {
+	    case 0:
+		inst->encap_type = ARPHRD_ETHER;
+		break;
+		/*
+	    case 1:
+		inst->encap_type = ARPHRD_IEEE80211_PRISM;
+		break;
+		*/
+	    case 2:
+		inst->encap_type = ARPHRD_IEEE80211_RADIOTAP;
+		break;
+	    }
+	    dev = cu_softmac_dev_from_netif(inst->netif);
+	    dev->type = inst->encap_type;
 	    write_unlock_irqrestore(&(inst->lock), flags);
 	    break;
+	}
 	case RAWMAC_INST_PROC_MAC:
 	    if (result > CU_SOFTMAC_NAME_SIZE)
 		result = CU_SOFTMAC_NAME_SIZE;
@@ -494,8 +608,28 @@ rawmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 
     read_lock(&(inst->lock));
 
-    /* first send it to the encapsulated MAC for processing
-     * when finished, the MAC will call rawmac_macdone
+    /* 
+     * transmit a packet.
+     * first do radiotap header processing
+     */
+    if (inst->encap_type == ARPHRD_IEEE80211_RADIOTAP) {
+	struct ieee80211_radiotap_header *th = (struct ieee80211_radiotap_header *) skb->data;
+	u_int8_t arg8 = 0;
+
+	if (rt_check_header(th, skb->len)) {
+	    if (rt_el_present(th, IEEE80211_RADIOTAP_RATE)) {
+		if (inst->phyinfo) {
+		    arg8 = *((u_int8_t *) rt_el_offset(th, IEEE80211_RADIOTAP_RATE));
+		    cu_softmac_ath_set_tx_bitrate(inst->phyinfo->phy_private, skb, arg8);
+		}
+	    }
+	    skb_pull(skb, th->it_len);
+	}
+    }
+
+    /*
+     * send the packet to the encapsulated MAC for processing
+     * when finished, the MAC will call rawmac_fakephy_sendpacket
      */
     if (inst->macinfo_real) {
 	inst->macinfo_real->cu_softmac_mac_packet_tx(inst->macinfo_real->mac_private, skb, intop);
@@ -518,7 +652,7 @@ rawmac_macdone(void *me, struct sk_buff *skb)
     if (!inst->netif) 
 	goto out;
 
-    if (inst->encap_type == RAWMAC_ENCAP_RADIOTAP) {
+    if (inst->encap_type == ARPHRD_IEEE80211_RADIOTAP) {
 	/* encapsulate with radiotap header */
 	struct ath_rx_radiotap_header *th;
 	
@@ -564,15 +698,23 @@ rawmac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 
     read_lock(&(inst->lock));
 
-    if (inst->macinfo_real)
-	inst->macinfo_real->cu_softmac_mac_packet_rx(inst->macinfo_real->mac_private, skb, intop);
-    else if (inst->phyinfo)
-	inst->phyinfo->cu_softmac_phy_free_skb(inst->phyinfo->phy_private, skb);
-    else
-	kfree_skb(skb);
+    if (!inst->macinfo_real) {
+	if (inst->phyinfo)
+	    inst->phyinfo->cu_softmac_phy_free_skb(inst->phyinfo->phy_private, skb);
+	else
+	    kfree_skb(skb);
+	read_unlock(&(inst->lock));
+	return CU_SOFTMAC_MAC_NOTIFY_OK;
+    }
+
+    /*
+     * receive a packet from the network
+     * call the encapsulated MAC to do its thing
+     * when finished, the MAC will call rawmac_macdone
+     */
+    inst->macinfo_real->cu_softmac_mac_packet_rx(inst->macinfo_real->mac_private, skb, intop);
 
     read_unlock(&(inst->lock));
-
     return CU_SOFTMAC_MAC_NOTIFY_OK;
 } 
 

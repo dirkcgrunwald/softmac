@@ -95,4 +95,10 @@ cu_softmac_netif_set_unload_callback(CU_SOFTMAC_NETIF_HANDLE nif,
 CU_SOFTMAC_NETIF_HANDLE
 cu_softmac_netif_from_dev(struct net_device* netdev);
 
+/*
+ * Get a dev from netif handle
+ */
+struct net_device *
+cu_softmac_dev_from_netif(CU_SOFTMAC_NETIF_HANDLE nif);
+
 #endif
