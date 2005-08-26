@@ -129,6 +129,9 @@ nullmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
     if (inst->phyinfo) {
 	inst->phyinfo->cu_softmac_phy_sendpacket(inst->phyinfo->phy_private, 1, skb);
     }
+    else { 
+	kfree_skb(skb);
+    }
     read_unlock(&(inst->lock));
 
     return CU_SOFTMAC_MAC_NOTIFY_OK;
