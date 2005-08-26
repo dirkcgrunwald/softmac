@@ -4,6 +4,7 @@ rs-objs = softmac_rs.o ccsds_tab.o decode_rs.o encode_rs.o
 RS=./reed-solomon-4.0
 
 all: rs linux_modules
+	mv rs.ko softmac_rs.ko
 
 DEPTH=..
 include ${PWD}/${DEPTH}/Makefile.inc
