@@ -25,9 +25,8 @@
 
 
 /**
- * @file softmac_cheesymac.c
- * @brief CheesyMAC: an example of an "Alohaesque" wireless MAC constructed
- * using the SoftMAC framework.
+ * @file softmac_multimac.c
+ * @brief MultiMAC description
  */
 
 #include <linux/module.h>
@@ -86,7 +85,7 @@ typedef struct MACS_t {
 
 /**
  * @brief This is the structure containing all of the state information
- * required for each CheesyMAC instance.
+ * required for each MultiMAC instance.
  */
 typedef struct CHEESYMAC_INSTANCE_t {
   /**
@@ -150,7 +149,7 @@ typedef struct CHEESYMAC_INSTANCE_t {
 
   /**
    * @brief Track all of the proc filesystem entries allocated for
-   * this CheesyMAC instance.
+   * this MultiMAC instance.
    */
   struct list_head my_procfs_data;
 
@@ -261,7 +260,7 @@ typedef struct {
 } CHEESYMAC_INST_PROC_ENTRY;
 
 /**
- * @brief Constants for proc entries for each CheesyMAC instance
+ * @brief Constants for proc entries for each MultiMAC instance
  */
 enum {
   CHEESYMAC_INST_PROC_TXBITRATE,
@@ -505,7 +504,7 @@ enum {
 static LIST_HEAD(cheesymac_instance_list);
 
 /**
- * @brief The CheesyMAC
+ * @brief The MultiMAC
  */
 static CU_SOFTMAC_LAYER_INFO the_cheesymac;
 
@@ -546,7 +545,7 @@ static int cheesymac_ath_deferalltxdone = CHEESYMAC_DEFAULT_DEFERALLTXDONE;
  * Default root directory for cheesymac procfs entries
  */
 static char *cheesymac_procfsroot = "multimac";
-static struct proc_dir_entry* cheesymac_procfsroot_handle = 0;
+//static struct proc_dir_entry* cheesymac_procfsroot_handle = 0;
 char *currentmacname;
 
 /*
@@ -791,7 +790,7 @@ static int cheesymac_create_and_attach_netif(void *mypriv)
 
     checknet = dev_get_by_name(macinfo->name);
     if (checknet) {
-      printk(KERN_DEBUG "CheesyMAC: Attaching to %s\n", macinfo->name);
+      printk(KERN_DEBUG "MultiMAC: Attaching to %s\n", macinfo->name);
       inst->netif = cu_softmac_netif_from_dev(checknet);
       dev_put(checknet);
       /*cu_softmac_netif_set_tx_callback(inst->netif, 
@@ -802,7 +801,7 @@ static int cheesymac_create_and_attach_netif(void *mypriv)
 				       (void *)inst);
     }
     else {
-      printk(KERN_DEBUG "CheesyMAC: Creating %s\n", macinfo->name);
+      printk(KERN_DEBUG "MultiMAC: Creating %s\n", macinfo->name);
       /*inst->netif = cu_softmac_netif_create_eth(macinfo->name,
 						0,
 						cheesymac_netif_txhelper,
@@ -813,11 +812,11 @@ static int cheesymac_create_and_attach_netif(void *mypriv)
 						inst);
     }
     if (inst->netif) {
-	//printk(KERN_DEBUG "CheesyMAC: Setting mac unload notify func\n");
+	//printk(KERN_DEBUG "MultiMAC: Setting mac unload notify func\n");
 	(macinfo->cu_softmac_mac_set_unload_notify_func)(inst,
 							 cu_softmac_netif_detach,
 							 inst->netif);
-	//printk(KERN_DEBUG "CheesyMAC: Setting netif unload callback func\n");
+	//printk(KERN_DEBUG "MultiMAC: Setting netif unload callback func\n");
 	cu_softmac_netif_set_unload_callback(inst->netif,
 					     cheesymac_netif_unload_helper,
 					     inst);
@@ -826,7 +825,7 @@ static int cheesymac_create_and_attach_netif(void *mypriv)
 					      inst->netif);
     }
     else {
-	printk(KERN_ALERT "CheesyMAC: Unable to attach to netif!\n");
+	printk(KERN_ALERT "MultiMAC: Unable to attach to netif!\n");
 	/*
 	 * Whack the cheesymac instance we just created
 	 */
@@ -908,7 +907,7 @@ static int multimac_phy_sendpacket(void* mydata, int max_inflight, struct sk_buf
 							    inst->maxinflight, 
 							    packet);
 	if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
-	  printk(KERN_ALERT "SoftMAC CheesyMAC: tasklet packet tx failed: %d\n",txresult);
+	  printk(KERN_ALERT "SoftMAC MultiMAC: tasklet packet tx failed: %d\n",txresult);
 	  /*
 	   * N.B. we return an "OK" for the transmit because
 	   * we're handling the sk_buff freeing down here --
@@ -922,7 +921,7 @@ static int multimac_phy_sendpacket(void* mydata, int max_inflight, struct sk_buf
     /*
      * Could not get our instance handle -- let the caller know...
      */
-    printk(KERN_ALERT "CheesyMAC: packet_tx -- no instance handle!\n");
+    printk(KERN_ALERT "MultiMAC: packet_tx -- no instance handle!\n");
     status = CU_SOFTMAC_MAC_TX_FAIL;
   }
 
@@ -973,7 +972,7 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
 							    inst->maxinflight, 
 							    packet);
 	if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
-	  printk(KERN_ALERT "SoftMAC CheesyMAC: top half packet tx failed: %d\n",txresult);
+	  printk(KERN_ALERT "SoftMAC MultiMAC: top half packet tx failed: %d\n",txresult);
 	}
 
 	status = CU_SOFTMAC_MAC_TX_OK;
@@ -1009,7 +1008,7 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
 							    inst->maxinflight, 
 							    packet);
 	if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
-	  printk(KERN_ALERT "SoftMAC CheesyMAC: tasklet packet tx failed: %d\n",txresult);
+	  printk(KERN_ALERT "SoftMAC MultiMAC: tasklet packet tx failed: %d\n",txresult);
 	  /*
 	   * N.B. we return an "OK" for the transmit because
 	   * we're handling the sk_buff freeing down here --
@@ -1024,7 +1023,7 @@ static int cu_softmac_mac_packet_tx_cheesymac(void* mydata,
     /*
      * Could not get our instance handle -- let the caller know...
      */
-    printk(KERN_ALERT "CheesyMAC: packet_tx -- no instance handle!\n");
+    printk(KERN_ALERT "MultiMAC: packet_tx -- no instance handle!\n");
     status = CU_SOFTMAC_MAC_TX_FAIL;
   }
 
@@ -1075,7 +1074,7 @@ static int cu_softmac_mac_packet_tx_done_cheesymac(void* mydata,
     read_unlock(&(inst->mac_busy));
   }
   else {
-    printk(KERN_ALERT "CheesyMAC: packet_tx_done -- no instance handle!\n");
+    printk(KERN_ALERT "MultiMAC: packet_tx_done -- no instance handle!\n");
     status = CU_SOFTMAC_MAC_NOTIFY_HOSED;
   }
 
@@ -1164,7 +1163,7 @@ static int cu_softmac_mac_packet_rx_cheesymac(void* mydata,
     read_unlock(&(inst->mac_busy));
   }
   else {
-    printk(KERN_ALERT "CheesyMAC: packet_rx -- no instance handle!\n");
+    printk(KERN_ALERT "MultiMAC: packet_rx -- no instance handle!\n");
     status = CU_SOFTMAC_MAC_NOTIFY_HOSED;
   }
 
@@ -1228,7 +1227,7 @@ static int cu_softmac_mac_work_cheesymac(void* mydata, int intop)
 							  inst->maxinflight,
 							  skb);
       if (CU_SOFTMAC_PHY_SENDPACKET_OK != txresult) {
-	printk(KERN_ALERT "SoftMAC CheesyMAC: work packet tx failed: %d\n",txresult);
+	printk(KERN_ALERT "SoftMAC MultiMAC: work packet tx failed: %d\n",txresult);
       }
     }
 
@@ -1322,10 +1321,6 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     macinfo->mac_private = inst;
     snprintf(macinfo->name, CU_SOFTMAC_NAME_SIZE, cheesymac_netiftemplate, inst->instanceid);
     
-    /* create procfs entries */
-    inst->my_procfs_root = cheesymac_procfsroot_handle;
-    cheesymac_make_procfs_entries(inst);
-
     /* fake phy that multimac attaches to mac layers */
     inst->multimac_fake_phy = cu_softmac_phyinfo_alloc();
     inst->multimac_fake_phy->phy_private = inst;
@@ -1345,7 +1340,7 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
 
   }
   else {
-    printk(KERN_ALERT "CheesyMAC create_instance: Unable to allocate memory!\n");
+    printk(KERN_ALERT "MultiMAC create_instance: Unable to allocate memory!\n");
   }
 
   return inst;
@@ -1417,6 +1412,10 @@ void *cu_softmac_cheesymac_new_instance(void *layer_priv)
     /* setup macinfo and register it with softmac */
     cu_softmac_macinfo_register(macinfo);
 
+    /* create procfs entries */
+    inst->my_procfs_root = inst->mymac->proc;
+    cheesymac_make_procfs_entries(inst);
+
     /* instances don't keep references to themselves */
     cu_softmac_macinfo_free(macinfo);
 
@@ -1443,9 +1442,10 @@ static int cheesymac_make_procfs_entries(CHEESYMAC_INSTANCE* inst)
      * First make the directory. For right now, we're just using the unique
      * MAC layer ID that was assigned upon creation as a name.
      */
-    snprintf(inst->procdirname,CHEESYMAC_PROCDIRNAME_LEN,"%d",inst->instanceid);
-    inst->my_procfs_dir = proc_mkdir(inst->procdirname,inst->my_procfs_root);
-    inst->my_procfs_dir->owner = THIS_MODULE;
+    //snprintf(inst->procdirname,CHEESYMAC_PROCDIRNAME_LEN,"%d",inst->instanceid);
+    //inst->my_procfs_dir = proc_mkdir(inst->procdirname,inst->my_procfs_root);
+    //inst->my_procfs_dir->owner = THIS_MODULE;
+    inst->my_procfs_dir = inst->my_procfs_root;
 
     /*
      * Make individual entries. Stop when we get either a null string
@@ -1453,7 +1453,7 @@ static int cheesymac_make_procfs_entries(CHEESYMAC_INSTANCE* inst)
      */
     i = 0;
     while (cheesymac_inst_proc_entries[i].name && cheesymac_inst_proc_entries[i].name[0]) {
-      //printk(KERN_ALERT "CheesyMAC: Creating proc entry %s, number %d\n",cheesymac_inst_proc_entries[i].name,i);
+      //printk(KERN_ALERT "MultiMAC: Creating proc entry %s, number %d\n",cheesymac_inst_proc_entries[i].name,i);
       curprocentry = create_proc_entry(cheesymac_inst_proc_entries[i].name,
 				       cheesymac_inst_proc_entries[i].mode,
 				       inst->my_procfs_dir);
@@ -1510,10 +1510,12 @@ static int cheesymac_delete_procfs_entries(CHEESYMAC_INSTANCE* inst)
     /*
      * Lastly, remove the directory
      */
+    /*
     if (inst->my_procfs_root) {
       remove_proc_entry(inst->procdirname,inst->my_procfs_root);
       inst->my_procfs_root = 0;
     }
+    */
   }
   return result;
 }
@@ -1814,15 +1816,15 @@ cu_softmac_mac_attach_cheesymac(void* handle,
 
   if (inst && phyinfo) {
 
-    //printk(KERN_DEBUG "SoftMAC CheesyMAC: Attaching to PHY -- getting lock\n");
+    //printk(KERN_DEBUG "SoftMAC MultiMAC: Attaching to PHY -- getting lock\n");
     write_lock(&(inst->mac_busy));
-    //printk(KERN_DEBUG "SoftMAC CheesyMAC: Attaching to PHY -- got lock\n");
+    //printk(KERN_DEBUG "SoftMAC MultiMAC: Attaching to PHY -- got lock\n");
 
     if (inst->myphy) {
       /*
        * Already attached -- bail out
        */
-      printk(KERN_ALERT "SoftMAC CheesyMAC: Attempting to attach to a phy layer while still attached to a phy layer!\n");
+      printk(KERN_ALERT "SoftMAC MultiMAC: Attempting to attach to a phy layer while still attached to a phy layer!\n");
       result = -1;
     }
     else {
@@ -1831,11 +1833,11 @@ cu_softmac_mac_attach_cheesymac(void* handle,
        */
       inst->myphy = cu_softmac_phyinfo_get(phyinfo);
     }
-    //printk(KERN_DEBUG "SoftMAC CheesyMAC: Unlocking MAC\n");
+    //printk(KERN_DEBUG "SoftMAC MultiMAC: Unlocking MAC\n");
     write_unlock(&(inst->mac_busy));
   }
   else {
-    printk(KERN_ALERT "SoftMAC CheesyMAC: Invalid MAC/PHY data on attach!\n");
+    printk(KERN_ALERT "SoftMAC MultiMAC: Invalid MAC/PHY data on attach!\n");
     result = -1;
   }
   return result;
@@ -1890,7 +1892,7 @@ cu_softmac_mac_set_unload_notify_func_cheesymac(void* mydata,
 
 
 /*
- * Get the default parameters used to initialize new CheesyMAC instances
+ * Get the default parameters used to initialize new MultiMAC instances
  */
 void
 cu_softmac_cheesymac_get_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
@@ -1904,12 +1906,12 @@ cu_softmac_cheesymac_get_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params)
     spin_unlock(&cheesymac_global_lock);
   }
   else {
-    printk(KERN_DEBUG "SoftMAC CheesyMAC: Called get_default_params with null parameters!\n");
+    printk(KERN_DEBUG "SoftMAC MultiMAC: Called get_default_params with null parameters!\n");
   }
 }
 
 /*
- * Set the default parameters used to initialize new CheesyMAC instances
+ * Set the default parameters used to initialize new MultiMAC instances
  */
 void
 cu_softmac_cheesymac_set_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params) {
@@ -1923,12 +1925,12 @@ cu_softmac_cheesymac_set_default_params(CU_SOFTMAC_CHEESYMAC_PARAMETERS* params)
     spin_unlock(&cheesymac_global_lock);
   }
   else {
-    printk(KERN_DEBUG "SoftMAC CheesyMAC: Called set_default_params with null parameters!\n");
+    printk(KERN_DEBUG "SoftMAC MultiMAC: Called set_default_params with null parameters!\n");
   }
 }
 
 /*
- * Get the parameters of a specific CheesyMAC instance
+ * Get the parameters of a specific MultiMAC instance
  */
 void
 cu_softmac_cheesymac_get_instance_params(void* macpriv,
@@ -1944,12 +1946,12 @@ cu_softmac_cheesymac_get_instance_params(void* macpriv,
     read_unlock(&(inst->mac_busy));
   }
   else {
-    printk(KERN_DEBUG "SoftMAC CheesyMAC: Called get_instance_params with bad data!\n");
+    printk(KERN_DEBUG "SoftMAC MultiMAC: Called get_instance_params with bad data!\n");
   }
 }
 
 /*
- * Set the parameters of a specific CheesyMAC instance
+ * Set the parameters of a specific MultiMAC instance
  */
 void
 cu_softmac_cheesymac_set_instance_params(void* macpriv,
@@ -1965,16 +1967,16 @@ cu_softmac_cheesymac_set_instance_params(void* macpriv,
     write_unlock(&(inst->mac_busy));
   }
   else {
-    printk(KERN_DEBUG "SoftMAC CheesyMAC: Called set_instance_params with bad data!\n");
+    printk(KERN_DEBUG "SoftMAC MultiMAC: Called set_instance_params with bad data!\n");
   }
 }
 
 static int __init softmac_cheesymac_init(void)
 {
-  printk(KERN_DEBUG "Loading CheesyMAC\n");
+  printk(KERN_DEBUG "Loading MultiMAC\n");
   
-  cheesymac_procfsroot_handle = proc_mkdir(cheesymac_procfsroot,0);
-  cheesymac_procfsroot_handle->owner = THIS_MODULE;
+  //cheesymac_procfsroot_handle = proc_mkdir(cheesymac_procfsroot,0);
+  //cheesymac_procfsroot_handle->owner = THIS_MODULE;
 
   strncpy(the_cheesymac.name, "multimac", CU_SOFTMAC_NAME_SIZE);
   the_cheesymac.cu_softmac_layer_new_instance = cu_softmac_cheesymac_new_instance;
@@ -1986,13 +1988,13 @@ static int __init softmac_cheesymac_init(void)
 
 static void __exit softmac_cheesymac_exit(void)
 {
-  printk(KERN_DEBUG "Unloading CheesyMAC\n");
+  printk(KERN_DEBUG "Unloading MultiMAC\n");
   /*
    * Tell any/all softmac PHY layers that we're leaving
    */
   spin_lock(&cheesymac_global_lock);
   if (!list_empty(&cheesymac_instance_list)) {
-    printk(KERN_DEBUG "CheesyMAC: Deleting instances\n");
+    printk(KERN_DEBUG "MultiMAC: Deleting instances\n");
     CHEESYMAC_INSTANCE* cheesy_instance = 0;
     struct list_head* tmp = 0;
     struct list_head* p = 0;
@@ -2003,22 +2005,23 @@ static void __exit softmac_cheesymac_exit(void)
      */
     list_for_each_safe(p,tmp,&cheesymac_instance_list) {
       cheesy_instance = list_entry(p,CHEESYMAC_INSTANCE,list);
-      printk(KERN_DEBUG "CheesyMAC: Detaching and destroying instance ID %d\n",cheesy_instance->instanceid);
+      printk(KERN_DEBUG "MultiMAC: Detaching and destroying instance ID %d\n",cheesy_instance->instanceid);
       cheesymac_destroy_instance(cheesy_instance);
     }
   }
   else {
-    printk(KERN_DEBUG "CheesyMAC: No instances found\n");
+    printk(KERN_DEBUG "MultiMAC: No instances found\n");
   }
 
   /*
    * Remove the root procfs directory very last of all...
    */
+  /*
   if (cheesymac_procfsroot_handle) {
     remove_proc_entry(cheesymac_procfsroot,0);
     cheesymac_procfsroot_handle = 0;
   }
-  
+  */
   cu_softmac_layer_unregister(&the_cheesymac);
 
   spin_unlock(&cheesymac_global_lock);
