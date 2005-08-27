@@ -102,7 +102,7 @@ cu_softmac_rs_encode_skb(struct sk_buff *skb, int offset)
     softmac_rs_encode_msg(skb2->data+offset, src, src_len);
     skb_put(skb2, d);
 
-    printk(NAME ": rs_encode %d (%d) -> %d (%d)\n", src_len, skb->len, dst_len, skb2->len);
+    //printk(NAME ": rs_encode %d (%d) -> %d (%d)\n", src_len, skb->len, dst_len, skb2->len);
 
     kfree_skb(skb);
     return skb2;
@@ -115,8 +115,8 @@ cu_softmac_rs_decode_skb(struct sk_buff *skb, int* errorcount)
     int len, errs;
 
     errs = softmac_rs_decode_msg(skb->data, skb->data, skb->len);
-    if (errs)
-      printk(NAME ": errs = %d\n", errs);
+    //if (errs)
+    //printk(NAME ": errs = %d\n", errs);
 
     /* get rid of extra bytes */
     if (errorcount) *errorcount = errs;
@@ -124,9 +124,9 @@ cu_softmac_rs_decode_skb(struct sk_buff *skb, int* errorcount)
     len *= (ENCBLKSZ - BLKSZ);       /* amt overhead */
     len = skb->len - len;            /* new len */
 
-    printk(NAME ": rs_decode %d -> ", skb->len);
+    //printk(NAME ": rs_decode %d -> ", skb->len);
     skb_trim(skb, len);
-    printk("%d\n", skb->len);
+    //printk("%d\n", skb->len);
 
     return skb;
 }

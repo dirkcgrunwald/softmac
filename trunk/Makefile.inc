@@ -6,7 +6,7 @@ export KERNELSOURCE
 endif
 
 SOFTMAC_ROOT=${PWD}/${DEPTH}
-SOFTMAC_INCLUDES=-I${SOFTMAC_ROOT}/include -I${SOFTMAC_ROOT}/linux_netif
+SOFTMAC_INCLUDES=-I${SOFTMAC_ROOT}/include -I${SOFTMAC_ROOT}/linux_netif -I${SOFTMAC_ROOT}/fec
 EXTRA_CFLAGS = ${SOFTMAC_INCLUDES}
 
 # make install will install modules to /lib/modules/VERSION/${INSTALL_MOD_DIR}
