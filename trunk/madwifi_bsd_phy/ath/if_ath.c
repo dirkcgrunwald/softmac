@@ -360,7 +360,7 @@ static int ath_cu_softmac_packetduration(struct net_device* dev,struct sk_buff* 
 void cu_softmac_ath_set_phocus_state(u_int16_t state,int16_t settle);
 
 // Encapsulate/decapsulate the required extra header gunk
-static struct sk_buff* ath_cu_softmac_encapsulate(struct ath_softc* sc,struct sk_buff* skb);
+//static struct sk_buff* cu_softmac_ath_encapsulate(void *data,struct sk_buff* skb);
 //static struct sk_buff* cu_softmac_ath_decapsulate(struct ath_softc* sc,struct sk_buff* skb);
 // returns length of header or -1 if unknown packet type
 static int ath_cu_softmac_getheaderlen(struct ath_softc*,struct sk_buff*);
@@ -7343,7 +7343,7 @@ cu_softmac_phy_sendpacket_keepskbonfail_ath(CU_SOFTMAC_PHY_HANDLE nfh,
 
   atomic_inc(&(sc->sc_cu_softmac_tx_packets_inflight));
   if (!(sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_RAW_MODE)) {
-    skb = ath_cu_softmac_encapsulate(sc,skb);
+    skb = cu_softmac_ath_encapsulate(sc,skb);
   }
   if ((max_packets_inflight > 0) &&
       (max_packets_inflight < atomic_read(&(sc->sc_cu_softmac_tx_packets_inflight)))) {
@@ -7683,7 +7683,8 @@ cu_softmac_ath_issoftmac(void *data,struct sk_buff* skb) {
 }
 
 static struct sk_buff*
-ath_cu_softmac_encapsulate(struct ath_softc* sc,struct sk_buff* skb) {
+cu_softmac_ath_encapsulate(void *data,struct sk_buff* skb) {
+  struct ath_softc *sc = data;
   unsigned char* newheader = 0;
   struct cu_softmac_header* cush = 0;
 
@@ -8706,6 +8707,7 @@ EXPORT_SYMBOL(cu_softmac_ath_set_slottime);
 EXPORT_SYMBOL(cu_softmac_ath_set_options);
 
 EXPORT_SYMBOL(cu_softmac_ath_decapsulate);
+EXPORT_SYMBOL(cu_softmac_ath_encapsulate);
 EXPORT_SYMBOL(cu_softmac_ath_issoftmac);
 
 EXPORT_SYMBOL(cu_softmac_ath_set_default_phy_props);

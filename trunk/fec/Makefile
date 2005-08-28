@@ -1,4 +1,4 @@
-obj-m += rs.o
+obj-m += rs.o softmac_rsmac.o
 rs-objs = softmac_rs.o ccsds_tab.o decode_rs.o encode_rs.o
 
 RS=./reed-solomon-4.0

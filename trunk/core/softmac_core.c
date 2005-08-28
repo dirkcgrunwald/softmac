@@ -659,16 +659,21 @@ cu_softmac_phyinfo_unregister(CU_SOFTMAC_PHYLAYER_INFO* phyinfo)
     
     head = softmac_phyinfo_hash(phyinfo->name);
     hlist_for_each(p, head) {
-	CU_SOFTMAC_PHYLAYER_INFO *m = hlist_entry(p, CU_SOFTMAC_PHYLAYER_INFO, name_hlist);
-	if (m == phyinfo) {
-	    /* remove from /proc/softmac/insts */
-	    softmac_procfs_inst_del(m);
-	    m->proc = 0;
+	CU_SOFTMAC_PHYLAYER_INFO *p = hlist_entry(p, CU_SOFTMAC_PHYLAYER_INFO, name_hlist);
+	if (p == phyinfo) {
+	    /* save for removal from /proc/softmac/insts 
+	     * the directory cannot be removed before cu_softmac_phyinfo_free */
+	    CU_SOFTMAC_MACLAYER_INFO *tmp = kmalloc(sizeof(CU_SOFTMAC_MACLAYER_INFO), GFP_ATOMIC);
+	    strncpy(tmp->name, p->name, CU_SOFTMAC_NAME_SIZE);
+
 	    /* remove from internal pyinfo list */
-	    hlist_del(&m->name_hlist);
+	    hlist_del(&p->name_hlist);
 	    /* decrement reference count */
-	    cu_softmac_phyinfo_free(m);
-	    
+	    cu_softmac_phyinfo_free(p);
+	    /* remove from proc */
+	    softmac_procfs_inst_del(tmp);
+	    kfree(tmp);
+
 	    printk("%s unregistered %s\n", __func__, phyinfo->name);
 	    return;
 	}
@@ -788,13 +793,18 @@ cu_softmac_macinfo_unregister(CU_SOFTMAC_MACLAYER_INFO* macinfo)
     hlist_for_each(p, head) {
 	CU_SOFTMAC_MACLAYER_INFO *m = hlist_entry(p, CU_SOFTMAC_MACLAYER_INFO, name_hlist);
 	if (m == macinfo) {
-	    /* remove from /proc/softmac/insts */
-	    softmac_procfs_inst_del(m);
-	    m->proc = 0;
+	    /* save for removal from /proc/softmac/insts 
+	    * the directory cannot be removed before cu_softmac_macinfo_free */
+	    CU_SOFTMAC_MACLAYER_INFO *tmp = kmalloc(sizeof(CU_SOFTMAC_MACLAYER_INFO), GFP_ATOMIC);
+	    strncpy(tmp->name, m->name, CU_SOFTMAC_NAME_SIZE);
+
 	    /* remove from internal list */
 	    hlist_del(&m->name_hlist);
 	    /* decrement reference count */
-	    cu_softmac_macinfo_free(m);
+	    cu_softmac_macinfo_free(m);	    
+	    /* remove from proc */
+	    softmac_procfs_inst_del(tmp);
+	    kfree(tmp);
 
 	    printk("%s unregistered %s\n", __func__, macinfo->name);
 	    return;

@@ -92,6 +92,9 @@ int cu_softmac_ath_issoftmac(/*struct ath_softc**/void *sc, struct sk_buff* skb)
 /* perform atheros softmac packet decapsulation */
 struct sk_buff* cu_softmac_ath_decapsulate(/*struct ath_softc**/void *sc,struct sk_buff* skb);
 
+/* perform atheros softmac packet decapsulation */
+struct sk_buff* cu_softmac_ath_encapsulate(/*struct ath_softc**/void *sc,struct sk_buff* skb);
+
 enum {
   /*
    * Special options for deferring RX and TXDONE because

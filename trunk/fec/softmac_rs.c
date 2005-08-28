@@ -72,9 +72,9 @@ softmac_rs_decode_msg(char *dst, char *src, int len)
       src += ENCBLKSZ;
       dst += BLKSZ;
   }
-  if (len) {
+  if (len > (ENCBLKSZ-BLKSZ)) {
       errors += decode_rs_8(src, NULL, 0, ENCBLKSZ-len);
-      memcpy(dst, src, len-32);
+      memcpy(dst, src, len-(ENCBLKSZ-BLKSZ));
   }
   return errors;
 }
