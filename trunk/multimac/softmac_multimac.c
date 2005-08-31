@@ -130,7 +130,10 @@ typedef struct CHEESYMAC_INSTANCE_t {
    * on each one.
    */
   int instanceid;
-
+  int passedup;
+  int gotthere;
+  char *preferred;
+  
   /**
    * @brief Keep a handle to the root procfs directory for this instance
    */
@@ -152,7 +155,6 @@ typedef struct CHEESYMAC_INSTANCE_t {
    * this MultiMAC instance.
    */
   struct list_head my_procfs_data;
-
 
   /**
    * @brief Transmit bitrate encoding to use.
@@ -261,7 +263,10 @@ enum {
   CHEESYMAC_INST_PROC_ADDMAC,
   CHEESYMAC_INST_PROC_DELETEMAC,
   CHEESYMAC_INST_PROC_RAW_MODE,
-  CHEESYMAC_INST_PROC_COUNT
+  CHEESYMAC_INST_PROC_COUNT,
+  CHEESYMAC_INST_PROC_INCOMING,
+  CHEESYMAC_INST_PROC_PASSED,
+  CHEESYMAC_INST_PROC_PREFERRED
 };
 
 /**
@@ -315,6 +320,21 @@ static const CHEESYMAC_INST_PROC_ENTRY cheesymac_inst_proc_entries[] = {
      0644,
      CHEESYMAC_INST_PROC_RAW_MODE
    },
+   {
+     "incoming",
+     0644,
+     CHEESYMAC_INST_PROC_INCOMING
+   },
+   {
+     "passed",
+     0644,
+     CHEESYMAC_INST_PROC_PASSED
+   }, 
+   {
+     "preferred",
+     0644,
+     CHEESYMAC_INST_PROC_PREFERRED
+   },       
   /*
    * Using this as the "null terminator" for the item list
    */
@@ -532,7 +552,7 @@ multimac_set_rx_func(char *name,
   CHEESYMAC_INSTANCE* inst = mydata;
   if (inst) {
     write_lock(&(inst->mac_busy));
-    
+   
     int i;
     for(i=0; i<MULTIMAC_MAX_MACS; i++)
     {
@@ -598,6 +618,7 @@ multimac_netif_rxhelper(void* priv,
     if (!inst->raw_mode && cu_softmac_ath_issoftmac(inst->myphy->phy_private, packet))
 	packet = cu_softmac_ath_decapsulate(inst->myphy->phy_private, packet);
     
+    inst->passedup++;
     for(i=0; i<MULTIMAC_MAX_MACS; i++)
     {
     	if(inst->macs[i])
@@ -635,8 +656,11 @@ multimac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
 
       for (i=0; i<MULTIMAC_MAX_MACS; i++) {
 	  if (inst->macs[i] && inst->macs[i]->mytxfunc) {
-	      struct sk_buff *skb = skb_copy(packet, GFP_ATOMIC);
-	      txresult = (inst->macs[i]->mytxfunc)((inst->macs[i])->mac->mac_private,skb,0);
+	      if(!inst->preferred || strncmp(inst->preferred, inst->macs[i]->name, CU_SOFTMAC_NAME_SIZE)==0)
+	      {
+	      	struct sk_buff *skb = skb_copy(packet, GFP_ATOMIC);
+	      	txresult = (inst->macs[i]->mytxfunc)((inst->macs[i])->mac->mac_private,skb,0);
+	      }
 	  }
       } 
       dev_kfree_skb(packet);
@@ -1004,6 +1028,7 @@ static int cu_softmac_mac_packet_rx_cheesymac(void* mydata,
   if (inst) {
     read_lock(&(inst->mac_busy));
     //printk(KERN_DEBUG "cheesymac: packet rx\n");
+    inst->gotthere++;
     if (intop) {
       /*
        * We defer handling to the bottom half if we're either
@@ -1158,6 +1183,7 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     inst->runningmacs = 0;
     inst->myphy = 0;
     inst->mymac = macinfo;
+    inst->preferred = kmalloc(CU_SOFTMAC_NAME_SIZE, GFP_KERNEL);
 
     /* access the global cheesymac variables safely */
     spin_lock(&cheesymac_global_lock);
@@ -1431,6 +1457,20 @@ cheesymac_inst_read_proc(char *page, char **start, off_t off,
       result = snprintf(dest,count,"%d\n",intval);
       *eof = 1;
       break;
+    case CHEESYMAC_INST_PROC_INCOMING:
+      read_lock(&(inst->mac_busy));
+      intval = inst->passedup;
+      read_unlock(&(inst->mac_busy));
+      result = snprintf(dest,count,"%d\n",intval);
+      *eof = 1;
+      break;
+    case CHEESYMAC_INST_PROC_PASSED:
+      read_lock(&(inst->mac_busy));
+      intval = inst->gotthere;
+      read_unlock(&(inst->mac_busy));
+      result = snprintf(dest,count,"%d\n",intval);
+      *eof = 1;
+      break;       
     case CHEESYMAC_INST_PROC_MAXINFLIGHT:
       read_lock(&(inst->mac_busy));
       intval = inst->maxinflight;
@@ -1541,6 +1581,14 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       inst->maxinflight = intval;
       write_unlock(&(inst->mac_busy));
       break;
+    case CHEESYMAC_INST_PROC_PREFERRED:   
+      if (result > CU_SOFTMAC_NAME_SIZE)
+	result = CU_SOFTMAC_NAME_SIZE;
+      kdata[result-1] = 0;
+      write_lock(&(inst->mac_busy));
+      strncpy(inst->preferred, kdata, CU_SOFTMAC_NAME_SIZE);
+      write_unlock(&(inst->mac_busy));
+      break;    
     case CHEESYMAC_INST_PROC_ADDMAC:
 	{
 	    int i;
