@@ -9,7 +9,8 @@ SUBDIRS=cheesymac \
 	rawmac \
 	remotemac \
 	remotemac/ktund \
-	fec
+	fec \
+        formage
 
 # every module should compile against this directory
 ifndef KERNELSOURCE
