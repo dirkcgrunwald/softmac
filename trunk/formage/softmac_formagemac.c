@@ -43,6 +43,11 @@ MODULE_LICENSE("GPL");
 static int formagemac_next_id;
 static const char *formagemac_name = "formagemac";
 
+//
+// This is used as the magic identifier for a "formage" packet
+//
+static const int deadbeef = 0xdeadbeef;
+
 /**
  * Every SoftMAC MAC or PHY layer provides a CU_SOFTMAC_LAYER_INFO interface
  */
@@ -348,7 +353,10 @@ formagemac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
     if (inst->phyinfo) {
 	// FORMAGE encode
 
-	inst->phyinfo->cu_softmac_phy_sendpacket(inst->phyinfo->phy_private, 1, skb);
+      char *label = skb_put(skb, sizeof(deadbeef));
+      
+      *((int *)label) = deadbeef;
+      inst->phyinfo->cu_softmac_phy_sendpacket(inst->phyinfo->phy_private, 1, skb);
     }
     else { 
 	kfree_skb(skb);
@@ -373,16 +381,22 @@ formagemac_rx_tasklet(unsigned long data)
 	    // 
 	    // Note that we're currently not checking anything for correctness
 	    //
+	  char *src = skb->data;
+	  if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
+	    //
+	    // This is a valid message
+	    //
+	    skb_pull(skb, sizeof(deadbeef));
 	    inst->netif_rx(inst->netif_rx_priv, skb);
 	    continue;
-	} else {
-	  // drop
-	  inst->rx_drop_count++;
-	  if (inst->phyinfo) {
-	    inst->phyinfo->cu_softmac_phy_free_skb(inst->phyinfo->phy_private, skb);
-	  } else {
-	    kfree_skb(skb);
 	  }
+	} 
+	// drop
+	inst->rx_drop_count++;
+	if (inst->phyinfo) {
+	  inst->phyinfo->cu_softmac_phy_free_skb(inst->phyinfo->phy_private, skb);
+	} else {
+	  kfree_skb(skb);
 	}
     }
 
