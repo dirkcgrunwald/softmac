@@ -133,7 +133,7 @@ typedef struct CHEESYMAC_INSTANCE_t {
   int passedup;
   int gotthere;
   char *preferred;
-  
+ 
   /**
    * @brief Keep a handle to the root procfs directory for this instance
    */
