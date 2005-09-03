@@ -138,6 +138,19 @@ struct formagemac_instance {
     rwlock_t lock;
 };
 
+//
+// Yes, this is a bogus CRC. We'll fix later
+int boguscrc(char *p, int l)
+{
+  int a = 0;
+  int i;
+  for (i = 0; i < l; i++) {
+    a += p[i];
+  }
+  return a;
+}
+
+
 static int
 formagemac_inst_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data) 
 {
@@ -351,11 +364,22 @@ formagemac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 
     read_lock(&(inst->lock));
     if (inst->phyinfo) {
-	// FORMAGE encode
 
-      char *label = skb_put(skb, sizeof(deadbeef));
-      
+      //
+      // Compute CRC of original message
+      //
+      int crc = boguscrc(skb->data, skb->len);
+      //
+      // Put in header
+      //
+      char *label = skb_push(skb, sizeof(deadbeef));
       *((int *)label) = deadbeef;
+      //
+      // Put in CRC
+      //
+      char *crcptr = skb_put(skb, sizeof(crc));
+      *((int*) crcptr) = crc;
+
       inst->phyinfo->cu_softmac_phy_sendpacket(inst->phyinfo->phy_private, 1, skb);
     }
     else { 
@@ -378,16 +402,28 @@ formagemac_rx_tasklet(unsigned long data)
     while ( (skb = skb_dequeue(&(inst->rxq))) ) {
 	inst->rx_count++;
 	if (inst->netif_rx) {
-	    // 
-	    // Note that we're currently not checking anything for correctness
-	    //
+	  // 
+	  // Note that we're currently not checking anything for correctness
+	  //
 	  char *src = skb->data;
 	  if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
 	    //
 	    // This is a valid message
 	    //
 	    skb_pull(skb, sizeof(deadbeef));
-	    inst->netif_rx(inst->netif_rx_priv, skb);
+	    //
+	    // Compute the checksum of the payload using our (admittedly cheesy) crc
+	    //
+	    int crc = boguscrc(skb->data, skb->len-4);
+	    char *crcptr = skb -> data + skb->len-4;
+	    int msgcrc = *(int *)crcptr;
+	    //
+	    // Now, remove the CRC
+	    //
+	    skb_trim(skb, skb->len-4);
+	    if (crc == msgcrc) {
+	      inst->netif_rx(inst->netif_rx_priv, skb);
+	    }
 	    continue;
 	  }
 	} 
@@ -410,20 +446,21 @@ formagemac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 
     struct formagemac_instance *inst = me;
 
-    skb_queue_tail(&(inst->rxq), skb);
-    if (intop) {
+    char *src = skb->data;
+    if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
+      skb_queue_tail(&(inst->rxq), skb);
+      if (intop) {
 	tasklet_schedule(&(inst->rxq_tasklet));
-    } else {
+      } else {
 	formagemac_rx_tasklet((unsigned long)me);
+      }
+      return 0;
+    } else {
+      //
+      // Tell multimac it is not our packet
+      //
+      return -1;
     }
-    
-	char *src = skb->data;
-	 if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
-		return 0;
-	 }else{ return -1; }
-    
-    // default return value
-    //return CU_SOFTMAC_MAC_NOTIFY_OK;
 } 
 
 

@@ -640,7 +640,7 @@ multimac_netif_rxhelper(void* priv,
     }
     
     if(claimed>=1)
-    	inst->passed++;
+    	inst->passedup++;
     
     (inst->myphy->cu_softmac_phy_free_skb)(inst->myphy->phy_private, packet);
   } else {

@@ -44,6 +44,11 @@ MODULE_LICENSE("GPL");
 static int rsmac_next_id;
 static const char *rsmac_name = "rsmac";
 
+//
+// This is used as the magic identifier for a "reedsolomon" packet
+//
+static const int deadbeef = 0x0badbadbad;
+
 /**
  * Every SoftMAC MAC or PHY layer provides a CU_SOFTMAC_LAYER_INFO interface
  */
@@ -348,9 +353,15 @@ rsmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 
     read_lock(&(inst->lock));
     if (inst->phyinfo) {
+      //
+      // Prepend packet header
+      //
+      char *label = skb_put(skb, sizeof(deadbeef));
+      *((int *)label) = deadbeef;
+
 	// RS encode
 	if (inst->rs_enable) {
-	    skb = cu_softmac_rs_encode_skb(skb, 0);
+	    skb = cu_softmac_rs_encode_skb(skb, sizeof(deadbeef));
 	}
 	if (inst->fake_error_rate) {
 	    cu_softmac_rs_make_errors(skb, 0, inst->fake_error_rate);
@@ -380,12 +391,24 @@ rsmac_rx_tasklet(unsigned long data)
 	    int errcnt = 0;
 	    // XXX test - RS decode
 	    if (inst->rs_enable) {
-		skb = cu_softmac_rs_decode_skb(skb, &errcnt);
-		if (errcnt >= 0) {
-		    inst->fixed_error_count += errcnt;
-		    inst->netif_rx(inst->netif_rx_priv, skb);
-		    continue;
-		}
+
+	      // 
+	      // Note that we're currently not checking anything for correctness
+	      // (i.e. having enough room in the SKB to do this)
+	      //
+	      char *src = skb->data;
+	      //
+	      // This is a valid message (we already found our deadbeef),
+	      // so remove the deadbeef header...
+	      //
+	      skb_pull(skb, sizeof(deadbeef));
+
+	      skb = cu_softmac_rs_decode_skb(skb, &errcnt);
+	      if (errcnt >= 0) {
+		inst->fixed_error_count += errcnt;
+		inst->netif_rx(inst->netif_rx_priv, skb);
+		continue;
+	      }
 	    }
 	} 
 	// drop
@@ -406,22 +429,27 @@ rsmac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 
     struct rsmac_instance *inst = me;
 
-    skb_queue_tail(&(inst->rxq), skb);
-    if (intop) {
-	tasklet_schedule(&(inst->rxq_tasklet));
-    } else {
-	rsmac_rx_tasklet((unsigned long)me);
-    }
-    
     int errcnt = 0;
-		skb = cu_softmac_rs_decode_skb(skb, &errcnt);
-		if (errcnt >= 0) {
-		  return 0;
-		}
-	return -1;  
-		
-    //default
-    //return CU_SOFTMAC_MAC_NOTIFY_OK;
+    skb = cu_softmac_rs_decode_skb(skb, &errcnt);
+    if (errcnt >= 0) {
+      return 0;
+    }
+
+    char *src = skb->data;
+    if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
+      skb_queue_tail(&(inst->rxq), skb);
+      if (intop) {
+	tasklet_schedule(&(inst->rxq_tasklet));
+      } else {
+	formagemac_rx_tasklet((unsigned long)me);
+      }
+      return 0;
+    } else {
+      //
+      // Tell multimac it is not our packet
+      //
+      return -1;
+    }
 } 
 
 
