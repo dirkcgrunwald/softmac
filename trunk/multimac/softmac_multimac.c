@@ -623,7 +623,6 @@ multimac_netif_rxhelper(void* priv,
     if (!inst->raw_mode && cu_softmac_ath_issoftmac(inst->myphy->phy_private, packet))
 	packet = cu_softmac_ath_decapsulate(inst->myphy->phy_private, packet);
     
-    inst->passedup++;
     int claimed = 0;
     for(i=0; i<MULTIMAC_MAX_MACS; i++)
     {
@@ -635,13 +634,14 @@ multimac_netif_rxhelper(void* priv,
 		struct sk_buff *skb = skb_copy(packet, GFP_ATOMIC);
 	    	txresult = (inst->macs[i]->myrxfunc)(inst->macs[i]->mac->mac_private, skb,0);
 		if(txresult==0)
-		{
-			inst->gotthere++;
-			break;
-		}
+			claimed++;
     	    }
 	}
     }
+    
+    if(claimed>=1)
+    	inst->passed++;
+    
     (inst->myphy->cu_softmac_phy_free_skb)(inst->myphy->phy_private, packet);
   } else {
     dev_kfree_skb(packet);
@@ -1039,7 +1039,6 @@ static int cu_softmac_mac_packet_rx_cheesymac(void* mydata,
   if (inst) {
     read_lock(&(inst->mac_busy));
     //printk(KERN_DEBUG "cheesymac: packet rx\n");
-    inst->gotthere++;
     if (intop) {
       /*
        * We defer handling to the bottom half if we're either
