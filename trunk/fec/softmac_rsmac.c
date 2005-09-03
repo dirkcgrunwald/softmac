@@ -454,7 +454,7 @@ rsmac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 	if (intop) {
 	  tasklet_schedule(&(inst->rxq_tasklet));
 	} else {
-	  formagemac_rx_tasklet((unsigned long)me);
+	  rsmac_rx_tasklet((unsigned long)me);
 	}
 	return 0;
       } else {
