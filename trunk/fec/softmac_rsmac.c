@@ -47,7 +47,7 @@ static const char *rsmac_name = "rsmac";
 //
 // This is used as the magic identifier for a "reedsolomon" packet
 //
-static const int deadbeef = 0x0bad0bad;
+static const char deadbeef = 0xf;
 
 /**
  * Every SoftMAC MAC or PHY layer provides a CU_SOFTMAC_LAYER_INFO interface
@@ -383,8 +383,8 @@ rsmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
       // Prepend packet header
       //
       skb_cow(skb, sizeof(deadbeef));
-      char *label = skb_push(skb, sizeof(deadbeef));
-      *((int *)label) = deadbeef;
+      char *label = skb_push(skb, sizeof(deadbeef)); 
+      *label = deadbeef;
 
       if (inst->fake_error_rate) {
 	cu_softmac_rs_make_errors(skb, 0, inst->fake_error_rate);
@@ -434,7 +434,7 @@ rsmac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 
 
     char *src = skb->data;
-    if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
+    if ( skb -> len > 1 && *src == deadbeef ) {
       //
       // Yes, it's ours. Decode it
       //

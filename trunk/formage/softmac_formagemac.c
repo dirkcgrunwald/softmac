@@ -46,7 +46,7 @@ static const char *formagemac_name = "formagemac";
 //
 // This is used as the magic identifier for a "formage" packet
 //
-static const int deadbeef = 0xdeadbeef;
+static const char deadbeef = 0x33;
 
 /**
  * Every SoftMAC MAC or PHY layer provides a CU_SOFTMAC_LAYER_INFO interface
@@ -375,7 +375,7 @@ formagemac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
       // 
       skb_cow(skb, sizeof(deadbeef));
       char *label = skb_push(skb, sizeof(deadbeef));
-      *((int *)label) = deadbeef;
+      *label = deadbeef;
       //
       // Put in CRC
       //
@@ -428,7 +428,7 @@ formagemac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
     struct formagemac_instance *inst = me;
 
     char *src = skb->data;
-    if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
+    if ( skb -> len > 1 && *src == deadbeef ) {
       //
       // Looks valid. Trim the header
       //
