@@ -464,7 +464,8 @@ enum {
 
 enum {
    MULTIMAC_CLAIMED_PACKET = 0,
-   MULTIMAC_BROKEN_PACKET = -1,
+   MULTIMAC_BROKEN_PACKET = 1,
+   MULTIMAC_UNCLAIMED_PACKET = -1,
   };
 
 /**
@@ -624,6 +625,8 @@ multimac_netif_rxhelper(void* priv,
 	packet = cu_softmac_ath_decapsulate(inst->myphy->phy_private, packet);
     
     int claimed = 0;
+    int broken = 0;
+    
     for(i=0; i<MULTIMAC_MAX_MACS; i++)
     {
     	if(inst->macs[i])
@@ -633,14 +636,19 @@ multimac_netif_rxhelper(void* priv,
     	    {	
 		struct sk_buff *skb = skb_copy(packet, GFP_ATOMIC);
 	    	txresult = (inst->macs[i]->myrxfunc)(inst->macs[i]->mac->mac_private, skb,0);
-		if(txresult==0)
+		if(txresult==MULTIMAC_CLAIMED_PACKET)
 			claimed++;
+		if(txresult==MULTIMAC_BROKEN_PACKET)
+			broken=1;
     	    }
 	}
     }
     
     if(claimed>=1)
     	inst->passedup++;
+	
+    if(broken!=1)
+    	inst->gotthere++;
     
     (inst->myphy->cu_softmac_phy_free_skb)(inst->myphy->phy_private, packet);
   } else {
@@ -1193,6 +1201,8 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     inst->runningmacs = 0;
     inst->myphy = 0;
     inst->mymac = macinfo;
+    inst->passedup = 0;
+    inst->gotthere = 0;
     inst->preferred = kmalloc(CU_SOFTMAC_NAME_SIZE, GFP_KERNEL);
     sprintf(inst->preferred, "*");
 
