@@ -639,7 +639,7 @@ multimac_netif_rxhelper(void* priv,
 		if(txresult==MULTIMAC_CLAIMED_PACKET)
 			claimed++;
 		if(txresult==MULTIMAC_BROKEN_PACKET)
-			broken=1;
+			broken++;
     	    }
 	}
     }
@@ -647,8 +647,11 @@ multimac_netif_rxhelper(void* priv,
     if(claimed>=1)
     	inst->passedup++;
 	
-    if(broken!=1)
+    if(broken>=1)
+    {
     	inst->gotthere++;
+	if(claimed==0) inst->passedup++;
+    }
     
     (inst->myphy->cu_softmac_phy_free_skb)(inst->myphy->phy_private, packet);
   } else {
