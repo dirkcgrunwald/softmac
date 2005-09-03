@@ -47,7 +47,7 @@ static const char *rsmac_name = "rsmac";
 //
 // This is used as the magic identifier for a "reedsolomon" packet
 //
-static const int deadbeef = 0x0badbadbad;
+static const int deadbeef = 0x0bad0bad;
 
 /**
  * Every SoftMAC MAC or PHY layer provides a CU_SOFTMAC_LAYER_INFO interface
@@ -138,6 +138,20 @@ struct rsmac_instance {
     struct list_head procfs_data;
     rwlock_t lock;
 };
+
+//
+// Yes, this is a bogus CRC. We'll fix later
+//
+int boguscrc(char *p, int l)
+{
+  int a = 0;
+  int i;
+  for (i = 0; i < l; i++) {
+    a += p[i];
+  }
+  return a;
+}
+
 
 static int
 rsmac_inst_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data) 
@@ -353,20 +367,27 @@ rsmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 
     read_lock(&(inst->lock));
     if (inst->phyinfo) {
+      int crc = boguscrc(skb->data, skb->len);
+      //
+      // Put in CRC
+      //
+      char *crcptr = skb_put(skb, sizeof(crc));
+      *((int*) crcptr) = crc;
+
+      // RS encode (including the CRC)
+      if (inst->rs_enable) {
+	skb = cu_softmac_rs_encode_skb(skb, 0);
+      }
       //
       // Prepend packet header
       //
-      char *label = skb_put(skb, sizeof(deadbeef));
+      char *label = skb_push(skb, sizeof(deadbeef));
       *((int *)label) = deadbeef;
 
-	// RS encode
-	if (inst->rs_enable) {
-	    skb = cu_softmac_rs_encode_skb(skb, sizeof(deadbeef));
-	}
-	if (inst->fake_error_rate) {
-	    cu_softmac_rs_make_errors(skb, 0, inst->fake_error_rate);
-	}
-	inst->phyinfo->cu_softmac_phy_sendpacket(inst->phyinfo->phy_private, 1, skb);
+      if (inst->fake_error_rate) {
+	cu_softmac_rs_make_errors(skb, 0, inst->fake_error_rate);
+      }
+      inst->phyinfo->cu_softmac_phy_sendpacket(inst->phyinfo->phy_private, 1, skb);
     }
     else { 
 	kfree_skb(skb);
@@ -388,28 +409,8 @@ rsmac_rx_tasklet(unsigned long data)
     while ( (skb = skb_dequeue(&(inst->rxq))) ) {
 	inst->rx_count++;
 	if (inst->netif_rx) {
-	    int errcnt = 0;
-	    // XXX test - RS decode
-	    if (inst->rs_enable) {
-
-	      // 
-	      // Note that we're currently not checking anything for correctness
-	      // (i.e. having enough room in the SKB to do this)
-	      //
-	      char *src = skb->data;
-	      //
-	      // This is a valid message (we already found our deadbeef),
-	      // so remove the deadbeef header...
-	      //
-	      skb_pull(skb, sizeof(deadbeef));
-
-	      skb = cu_softmac_rs_decode_skb(skb, &errcnt);
-	      if (errcnt >= 0) {
-		inst->fixed_error_count += errcnt;
-		inst->netif_rx(inst->netif_rx_priv, skb);
-		continue;
-	      }
-	    }
+	  inst->netif_rx(inst->netif_rx_priv, skb);
+	  continue;
 	} 
 	// drop
 	inst->rx_drop_count++;
@@ -429,21 +430,37 @@ rsmac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 
     struct rsmac_instance *inst = me;
 
-    int errcnt = 0;
-    skb = cu_softmac_rs_decode_skb(skb, &errcnt);
-    if (errcnt >= 0) {
-      return 0;
-    }
 
     char *src = skb->data;
     if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
-      skb_queue_tail(&(inst->rxq), skb);
-      if (intop) {
-	tasklet_schedule(&(inst->rxq_tasklet));
-      } else {
-	formagemac_rx_tasklet((unsigned long)me);
+      //
+      // Yes, it's ours. Decode it
+      //
+      skb_pull(skb, sizeof(deadbeef));
+
+      if (inst->rs_enable) {
+	int errcnt = 0;
+	skb = cu_softmac_rs_decode_skb(skb, &errcnt);
+	inst->fixed_error_count += errcnt;
       }
-      return 0;
+      //
+      // Compute the checksum
+      int crc = boguscrc(skb->data, skb->len-4);
+      char *crcptr = skb -> data + skb->len-4;
+      int msgcrc = *(int *)crcptr;
+      skb_trim(skb, skb->len-4);
+      if (crc == msgcrc) {
+	skb_queue_tail(&(inst->rxq), skb);
+	if (intop) {
+	  tasklet_schedule(&(inst->rxq_tasklet));
+	} else {
+	  formagemac_rx_tasklet((unsigned long)me);
+	}
+	return 0;
+      } else {
+	// It's ours, but checksum is bad
+	return 1;
+      }
     } else {
       //
       // Tell multimac it is not our packet

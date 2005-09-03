@@ -140,6 +140,7 @@ struct formagemac_instance {
 
 //
 // Yes, this is a bogus CRC. We'll fix later
+//
 int boguscrc(char *p, int l)
 {
   int a = 0;
@@ -402,30 +403,8 @@ formagemac_rx_tasklet(unsigned long data)
     while ( (skb = skb_dequeue(&(inst->rxq))) ) {
 	inst->rx_count++;
 	if (inst->netif_rx) {
-	  // 
-	  // Note that we're currently not checking anything for correctness
-	  //
-	  char *src = skb->data;
-	  if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
-	    //
-	    // This is a valid message
-	    //
-	    skb_pull(skb, sizeof(deadbeef));
-	    //
-	    // Compute the checksum of the payload using our (admittedly cheesy) crc
-	    //
-	    int crc = boguscrc(skb->data, skb->len-4);
-	    char *crcptr = skb -> data + skb->len-4;
-	    int msgcrc = *(int *)crcptr;
-	    //
-	    // Now, remove the CRC
-	    //
-	    skb_trim(skb, skb->len-4);
-	    if (crc == msgcrc) {
-	      inst->netif_rx(inst->netif_rx_priv, skb);
-	    }
-	    continue;
-	  }
+	  inst->netif_rx(inst->netif_rx_priv, skb);
+	  continue;
 	} 
 	// drop
 	inst->rx_drop_count++;
@@ -448,11 +427,32 @@ formagemac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 
     char *src = skb->data;
     if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
-      skb_queue_tail(&(inst->rxq), skb);
-      if (intop) {
-	tasklet_schedule(&(inst->rxq_tasklet));
+      //
+      // Looks valid. Trim the header
+      //
+      skb_pull(skb, sizeof(deadbeef));
+      //
+      // Compute the checksum of the payload using our (admittedly cheesy) crc
+      //
+      int crc = boguscrc(skb->data, skb->len-4);
+      char *crcptr = skb -> data + skb->len-4;
+      int msgcrc = *(int *)crcptr;
+      //
+      // Now, remove the CRC
+      //
+      skb_trim(skb, skb->len-4);
+      if (crc == msgcrc) {
+	skb_queue_tail(&(inst->rxq), skb);
+	if (intop) {
+	  tasklet_schedule(&(inst->rxq_tasklet));
+	} else {
+	  formagemac_rx_tasklet((unsigned long)me);
+	}
       } else {
-	formagemac_rx_tasklet((unsigned long)me);
+	//
+	// It's our packet, but the checksum failed
+	//
+	return 1;
       }
       return 0;
     } else {
