@@ -1,4 +1,4 @@
-modprobe softmac_rsmac
+#modprobe softmac_rsmac
 modprobe softmac_formagemac
 echo multimac > /proc/softmac/create_instance
 echo multi1 > /proc/softmac/insts/athphy0/mac_layer

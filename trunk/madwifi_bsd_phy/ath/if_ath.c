@@ -5376,7 +5376,8 @@ ath_getchannels(struct net_device *dev, u_int cc,
 		if_printf(dev, "unable to collect channel list from hal; "
 			"regdomain likely %u country code %u\n", rd, cc);
 		kfree(chans);
-		return EINVAL;
+//		return EINVAL;
+		return 0;
 	}
 
 	/*

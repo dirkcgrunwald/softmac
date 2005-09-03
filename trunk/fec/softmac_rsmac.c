@@ -371,6 +371,7 @@ rsmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
       //
       // Put in CRC
       //
+      skb = skb_padto(skb, skb -> len + sizeof(crc));
       char *crcptr = skb_put(skb, sizeof(crc));
       *((int*) crcptr) = crc;
 
@@ -381,6 +382,7 @@ rsmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
       //
       // Prepend packet header
       //
+      skb_cow(skb, sizeof(deadbeef));
       char *label = skb_push(skb, sizeof(deadbeef));
       *((int *)label) = deadbeef;
 
