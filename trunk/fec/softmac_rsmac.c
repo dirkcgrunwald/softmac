@@ -412,7 +412,16 @@ rsmac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
     } else {
 	rsmac_rx_tasklet((unsigned long)me);
     }
-    return CU_SOFTMAC_MAC_NOTIFY_OK;
+    
+    int errcnt = 0;
+		skb = cu_softmac_rs_decode_skb(skb, &errcnt);
+		if (errcnt >= 0) {
+		  return 0;
+		}
+	return -1;  
+		
+    //default
+    //return CU_SOFTMAC_MAC_NOTIFY_OK;
 } 
 
 

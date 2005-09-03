@@ -462,6 +462,11 @@ enum {
   CHEESYMAC_DEFAULT_TXBITRATE = 2,
 };
 
+enum {
+   MULTIMAC_CLAIMED_PACKET = 0,
+   MULTIMAC_BROKEN_PACKET = -1,
+  };
+
 /**
  * @brief Keep a reference to the head of our linked list of instances.
  */
@@ -619,6 +624,7 @@ multimac_netif_rxhelper(void* priv,
 	packet = cu_softmac_ath_decapsulate(inst->myphy->phy_private, packet);
     
     inst->passedup++;
+    int claimed = 0;
     for(i=0; i<MULTIMAC_MAX_MACS; i++)
     {
     	if(inst->macs[i])
@@ -628,6 +634,11 @@ multimac_netif_rxhelper(void* priv,
     	    {	
 		struct sk_buff *skb = skb_copy(packet, GFP_ATOMIC);
 	    	txresult = (inst->macs[i]->myrxfunc)(inst->macs[i]->mac->mac_private, skb,0);
+		if(txresult==0)
+		{
+			inst->gotthere++;
+			break;
+		}
     	    }
 	}
     }
@@ -656,7 +667,7 @@ multimac_netif_txhelper(CU_SOFTMAC_NETIF_HANDLE nif,void* priv,
 
       for (i=0; i<MULTIMAC_MAX_MACS; i++) {
 	  if (inst->macs[i] && inst->macs[i]->mytxfunc) {
-	      if(!inst->preferred || strncmp(inst->preferred, inst->macs[i]->name, CU_SOFTMAC_NAME_SIZE)==0)
+	    if(strncmp(inst->preferred, "*", 1)==0 || strncmp(inst->preferred, inst->macs[i]->name, CU_SOFTMAC_NAME_SIZE)==0)
 	      {
 	      	struct sk_buff *skb = skb_copy(packet, GFP_ATOMIC);
 	      	txresult = (inst->macs[i]->mytxfunc)((inst->macs[i])->mac->mac_private,skb,0);
@@ -1184,6 +1195,7 @@ static CHEESYMAC_INSTANCE *cheesymac_create_instance(CU_SOFTMAC_MACLAYER_INFO* m
     inst->myphy = 0;
     inst->mymac = macinfo;
     inst->preferred = kmalloc(CU_SOFTMAC_NAME_SIZE, GFP_KERNEL);
+    sprintf(inst->preferred, "*");
 
     /* access the global cheesymac variables safely */
     spin_lock(&cheesymac_global_lock);

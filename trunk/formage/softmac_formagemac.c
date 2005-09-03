@@ -416,7 +416,14 @@ formagemac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
     } else {
 	formagemac_rx_tasklet((unsigned long)me);
     }
-    return CU_SOFTMAC_MAC_NOTIFY_OK;
+    
+	char *src = skb->data;
+	 if ( skb -> len > 4 && ( *((int *) src) == deadbeef )) {
+		return 0;
+	 }else{ return -1; }
+    
+    // default return value
+    //return CU_SOFTMAC_MAC_NOTIFY_OK;
 } 
 
 
