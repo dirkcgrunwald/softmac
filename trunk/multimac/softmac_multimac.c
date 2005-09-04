@@ -266,7 +266,8 @@ enum {
   CHEESYMAC_INST_PROC_COUNT,
   CHEESYMAC_INST_PROC_INCOMING,
   CHEESYMAC_INST_PROC_PASSED,
-  CHEESYMAC_INST_PROC_PREFERRED
+  CHEESYMAC_INST_PROC_PREFERRED,
+  CHEESYMAC_INST_PROC_RESETCOUNTERS
 };
 
 /**
@@ -326,7 +327,7 @@ static const CHEESYMAC_INST_PROC_ENTRY cheesymac_inst_proc_entries[] = {
      CHEESYMAC_INST_PROC_INCOMING
    },
    {
-     "passed",
+     "broken",
      0644,
      CHEESYMAC_INST_PROC_PASSED
    }, 
@@ -334,6 +335,11 @@ static const CHEESYMAC_INST_PROC_ENTRY cheesymac_inst_proc_entries[] = {
      "preferred",
      0644,
      CHEESYMAC_INST_PROC_PREFERRED
+   },    
+   {
+     "resetcounters",
+     0644,
+     CHEESYMAC_INST_PROC_RESETCOUNTERS
    },       
   /*
    * Using this as the "null terminator" for the item list
@@ -1603,6 +1609,12 @@ cheesymac_inst_write_proc(struct file *file, const char __user *buffer,
       intval = simple_strtol(kdata,&endp,10);
       write_lock(&(inst->mac_busy));
       inst->maxinflight = intval;
+      write_unlock(&(inst->mac_busy));
+      break;
+    case CHEESYMAC_INST_PROC_RESETCOUNTERS:
+      write_lock(&(inst->mac_busy));
+      inst->passedup = 0;
+      inst->gotthere = 0;
       write_unlock(&(inst->mac_busy));
       break;
     case CHEESYMAC_INST_PROC_PREFERRED:   
