@@ -5376,6 +5376,7 @@ ath_getchannels(struct net_device *dev, u_int cc,
 		if_printf(dev, "unable to collect channel list from hal; "
 			"regdomain likely %u country code %u\n", rd, cc);
 		kfree(chans);
+		// XXX why is this commented out?
 //		return EINVAL;
 		return 0;
 	}
@@ -6240,7 +6241,8 @@ enum {
 	ATH_CU_SOFTMAC_NOAUTOCALIBRATE = 10,
 	ATH_CU_SOFTMAC_CALIBRATE_NOW = 11,
 	ATH_CU_SOFTMAC_PHY_NF_RAW = 12,
-	ATH_CU_SOFTMAC_MAC = 13
+	ATH_CU_SOFTMAC_MAC = 13,
+	ATH_CU_SOFTMAC_ALLOW_CRCERR = 14,
 };
 
 enum {
@@ -6314,6 +6316,10 @@ static const struct ath_cu_softmac_proc_entry athphy_proc_entries[] = {
     },
     { .ctl_name = ATH_CU_SOFTMAC_MAC,
       .procname = "mac_layer",
+      .mode     = 0644,
+    },
+    { .ctl_name = ATH_CU_SOFTMAC_ALLOW_CRCERR,
+      .procname = "allow_crcerr",
       .mode     = 0644,
     },
     /* terminator, don't remove */
@@ -6466,6 +6472,17 @@ ath_cu_softmac_athphy_read_proc(char *page, char **start, off_t off,
 		result = snprintf(dest, count, "%s\n", sc->sc_cu_softmac_mac->name);
 	    *eof = 1;	
 	    break;
+	case ATH_CU_SOFTMAC_ALLOW_CRCERR:
+	    // Allow softmac to operate on the whole 802.11 frame
+	    if (sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_ALLOW_CRCERR) {
+		intval = 1;
+	    }
+	    else {
+		intval = 0;
+	    }
+	    result = snprintf(dest,count, "%d\n", intval);
+	    *eof = 1;	
+	    break;
 	default:
 	    result = 0;
 	    *eof = 1;
@@ -6611,6 +6628,15 @@ ath_cu_softmac_athphy_write_proc(struct file *file, const char __user *buffer,
 		printk("%s: attached to %s\n", sc->sc_cu_softmac_phy->name, kdata);
 	    }
 
+	    break;
+	case ATH_CU_SOFTMAC_ALLOW_CRCERR:
+	    val = simple_strtol(kdata, &endp, 10);
+	    if (val) {
+		sc->sc_cu_softmac_options |= CU_SOFTMAC_ATH_ALLOW_CRCERR;
+	    }
+	    else {
+		sc->sc_cu_softmac_options &= ~CU_SOFTMAC_ATH_ALLOW_CRCERR;
+	    }
 	    break;
 	default:
 	    break;
@@ -7683,7 +7709,7 @@ cu_softmac_ath_issoftmac(void *data,struct sk_buff* skb) {
   return (CU_SOFTMAC_HEADER_UNKNOWN != htype);
 }
 
-static struct sk_buff*
+struct sk_buff*
 cu_softmac_ath_encapsulate(void *data,struct sk_buff* skb) {
   struct ath_softc *sc = data;
   unsigned char* newheader = 0;
@@ -7826,11 +7852,8 @@ ath_cu_softmac_handle_rx(struct net_device* dev,int intop) {
     if (0 < len) {
       // Handoff to the softmac
 
-      // Ok, this is crappy, but we can fix it in the future
-      // CU_SOFTMAC_ATH_ALLOW_CRCERR = 1
-      if(1) {
-      //if ((sc->sc_cu_softmac_options & 1) || 
-      //	  !(skb->cb[ATH_CU_SOFTMAC_CB_RX_CRCERR])) {
+      if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_ALLOW_CRCERR) ||
+	 !(skb->cb[ATH_CU_SOFTMAC_CB_RX_CRCERR])) {
 	skb_put(skb, len);
 	*((struct ath_buf **)(skb->cb+ATH_CU_SOFTMAC_CB_RX_BF0)) = bf;
 	if (ath_cu_softmac_rx(dev,skb,intop)) {
