@@ -7825,7 +7825,10 @@ ath_cu_softmac_handle_rx(struct net_device* dev,int intop) {
      */
     if (0 < len) {
       // Handoff to the softmac
-      if ((sc->sc_cu_softmac_options & CU_SOFTMAC_ATH_ALLOW_CRCERR) || 
+
+      // Ok, this is crappy, but we can fix it in the future
+      // CU_SOFTMAC_ATH_ALLOW_CRCERR = 1
+      if ((sc->sc_cu_softmac_options & 1) || 
 	  !(skb->cb[ATH_CU_SOFTMAC_CB_RX_CRCERR])) {
 	skb_put(skb, len);
 	*((struct ath_buf **)(skb->cb+ATH_CU_SOFTMAC_CB_RX_BF0)) = bf;
