@@ -36,6 +36,7 @@
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
+#include <linux/crc32.h>
 #include "cu_softmac_api.h"
 
 MODULE_LICENSE("GPL");
@@ -138,7 +139,7 @@ struct formagemac_instance {
     rwlock_t lock;
 };
 
-//
+/*XXX Remove
 // Yes, this is a bogus CRC. We'll fix later
 //
 int boguscrc(char *p, int l)
@@ -150,7 +151,7 @@ int boguscrc(char *p, int l)
   }
   return a;
 }
-
+*/
 
 static int
 formagemac_inst_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data) 
@@ -369,7 +370,9 @@ formagemac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
       //
       // Compute CRC of original message
       //
-      int crc = boguscrc(skb->data, skb->len);
+      //XXX Remove int crc = boguscrc(skb->data, skb->len);
+      u32 crc = crc32_le(0,skb->data,skb->len);
+      //printk("Calculated CRC = %d\n",crc);
       //
       // Put in header
       // 
@@ -381,7 +384,8 @@ formagemac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
       //
       skb = skb_padto(skb, skb -> len + sizeof(crc));
       char *crcptr = skb_put(skb, sizeof(crc));
-      *((int*) crcptr) = crc;
+      //XXX Remove *((int*) crcptr) = crc;
+      *((u32*) crcptr) = crc;
 
       inst->phyinfo->cu_softmac_phy_sendpacket(inst->phyinfo->phy_private, 1, skb);
     }
@@ -436,9 +440,12 @@ formagemac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
       //
       // Compute the checksum of the payload using our (admittedly cheesy) crc
       //
-      int crc = boguscrc(skb->data, skb->len-4);
+      //XXX Remove int crc = boguscrc(skb->data, skb->len-4);
+      u32 crc = crc32_le(0,skb->data, skb->len-4); 
       char *crcptr = skb -> data + skb->len-4;
-      int msgcrc = *(int *)crcptr;
+      //XXX Remove int msgcrc = *(int *)crcptr;
+      u32 msgcrc = *(u32 *)crcptr;
+      //printk("Calculated rec CRS is %d\n",msgcrc);      
       //
       // Now, remove the CRC
       //

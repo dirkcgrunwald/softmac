@@ -36,6 +36,7 @@
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/proc_fs.h>
+#include <linux/crc32.h>
 #include "cu_softmac_api.h"
 #include "softmac_rs.h"
 
@@ -139,6 +140,7 @@ struct rsmac_instance {
     rwlock_t lock;
 };
 
+/*
 //
 // Yes, this is a bogus CRC. We'll fix later
 //
@@ -151,7 +153,7 @@ int boguscrc(char *p, int l)
   }
   return a;
 }
-
+*/
 
 static int
 rsmac_inst_read_proc(char *page, char **start, off_t off, int count, int *eof, void *data) 
@@ -367,13 +369,15 @@ rsmac_mac_packet_tx(void *me, struct sk_buff *skb, int intop)
 
     read_lock(&(inst->lock));
     if (inst->phyinfo) {
-      int crc = boguscrc(skb->data, skb->len);
+      //XXX Remove int crc = boguscrc(skb->data, skb->len);
+      u32 crc = crc32_le(0,skb->data, skb->len);
       //
       // Put in CRC
       //
       skb = skb_padto(skb, skb -> len + sizeof(crc));
       char *crcptr = skb_put(skb, sizeof(crc));
-      *((int*) crcptr) = crc;
+      //XXX Remove *((int*) crcptr) = crc;
+      *((u32*) crcptr) = crc;
 
       // RS encode (including the CRC)
       if (inst->rs_enable) {
@@ -447,9 +451,11 @@ rsmac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
       }
       //
       // Compute the checksum
-      int crc = boguscrc(skb->data, skb->len-4);
-      char *crcptr = skb -> data + skb->len-4;
-      int msgcrc = *(int *)crcptr;
+      //XXX Remove int crc = boguscrc(skb->data, skb->len-4);
+      u32 crc = crc32_le(0,skb->data, skb->len-4);
+      char *crcptr = skb -> data + skb->len-4;      
+      //XXX Remove int msgcrc = *(int *)crcptr;
+      u32 msgcrc = *(u32 *)crcptr;
       skb_trim(skb, skb->len-4);
       if (crc == msgcrc) {
 	skb_queue_tail(&(inst->rxq), skb);
