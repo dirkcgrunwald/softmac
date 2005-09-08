@@ -135,5 +135,12 @@ metamac_set_rx_func_cheesymac(char *name,
 				     CU_SOFTMAC_MAC_RX_FUNC rxfunc,
 				     void* rxpriv);
 					 
+
+enum {
+   MULTIMAC_CLAIMED_PACKET = 0,
+   MULTIMAC_BROKEN_PACKET = 1,
+   MULTIMAC_UNCLAIMED_PACKET = -1,
+};
+
 #endif
 

@@ -468,12 +468,6 @@ enum {
   CHEESYMAC_DEFAULT_TXBITRATE = 2,
 };
 
-enum {
-   MULTIMAC_CLAIMED_PACKET = 0,
-   MULTIMAC_BROKEN_PACKET = 1,
-   MULTIMAC_UNCLAIMED_PACKET = -1,
-  };
-
 /**
  * @brief Keep a reference to the head of our linked list of instances.
  */
@@ -642,11 +636,14 @@ multimac_netif_rxhelper(void* priv,
     	    {	
 		struct sk_buff *skb = skb_copy(packet, GFP_ATOMIC);
 	    	txresult = (inst->macs[i]->myrxfunc)(inst->macs[i]->mac->mac_private, skb,0);
-		if(txresult==MULTIMAC_CLAIMED_PACKET)
-			claimed++;
-		if(txresult==MULTIMAC_BROKEN_PACKET)
+		if (txresult == MULTIMAC_CLAIMED_PACKET) {
+		    claimed++;
+		} else {
+		    if (txresult == MULTIMAC_BROKEN_PACKET)
 			broken++;
-    	    }
+		    kfree_skb(skb);
+		}
+	    }
 	}
     }
     

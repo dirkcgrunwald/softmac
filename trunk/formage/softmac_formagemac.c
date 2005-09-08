@@ -38,6 +38,7 @@
 #include <linux/proc_fs.h>
 #include <linux/crc32.h>
 #include "cu_softmac_api.h"
+#include "../multimac/softmac_multimac.h"
 
 MODULE_LICENSE("GPL");
 
@@ -457,18 +458,18 @@ formagemac_mac_packet_rx(void *me, struct sk_buff *skb, int intop)
 	} else {
 	  formagemac_rx_tasklet((unsigned long)me);
 	}
+	return MULTIMAC_CLAIMED_PACKET;
       } else {
 	//
 	// It's our packet, but the checksum failed
 	//
-	return 1;
+	return MULTIMAC_BROKEN_PACKET;
       }
-      return 0;
     } else {
       //
       // Tell multimac it is not our packet
       //
-      return -1;
+      return MULTIMAC_UNCLAIMED_PACKET;
     }
 } 
 
