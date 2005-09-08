@@ -1,15 +1,14 @@
-obj-m += rs.o softmac_rsmac.o
-rs-objs = softmac_rs.o ccsds_tab.o decode_rs.o encode_rs.o
+obj-m += softmac_rslib.o softmac_rsmac.o
+softmac_rslib-objs = softmac_rs.o ccsds_tab.o decode_rs.o encode_rs.o
 
 RS=./reed-solomon-4.0
 
-all: rs linux_modules
-	mv rs.ko softmac_rs.ko
+all: links linux_modules
 
 DEPTH=..
 include ${PWD}/${DEPTH}/Makefile.inc
 
-rs: 
+links: 
 	$(MAKE) -C $(RS) ccsds_tab.c
 	ln -sf $(RS)/ccsds_tab.c
 	ln -sf $(RS)/decode_rs.c
@@ -17,8 +16,8 @@ rs:
 	ln -sf $(RS)/fixed.h
 	ln -sf $(RS)/rs.h
 
-rs.o: ${rs-objs}
-	$(LD) $(LDOPTS) -o rs.o -r $(rs-objs)
+softmac_rslib.o: ${rs-objs}
+	$(LD) $(LDOPTS) -o softmac_rslib.o -r $(rs-objs)
 
 clean: linux_clean
 	rm -f .*.o.flags *.mod.c *.ko *.o *~ ccsds_tab.c decode_rs.c encode_rs.c fixed.h rs.h
