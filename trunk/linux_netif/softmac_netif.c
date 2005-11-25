@@ -78,6 +78,7 @@ static int softmac_netif_dev_stop(struct net_device *dev);
 static void softmac_netif_dev_tx_timeout(struct net_device *dev);
 static void softmac_netif_dev_mclist(struct net_device* dev);
 static struct net_device_stats* softmac_netif_dev_stats(struct net_device* dev);
+static int softmac_netif_change_mtu(struct net_device *dev, int new_mtu);
 /*
 **
 ** Module parameters
@@ -146,6 +147,7 @@ cu_softmac_netif_create_eth(char* name,unsigned char* macaddr,
     dev->watchdog_timeo = 5 * HZ;			/* XXX */
     dev->set_multicast_list = softmac_netif_dev_mclist;
     dev->get_stats = softmac_netif_dev_stats;
+    dev->change_mtu = softmac_netif_change_mtu;
     newinst->txfunc = txfunc;
     newinst->txfunc_priv = txfunc_priv;
     write_unlock(&(newinst->devlock));
@@ -418,6 +420,30 @@ static struct net_device_stats *softmac_netif_dev_stats(struct net_device *dev)
     nds = &inst->devstats;
   }
   return nds;
+}
+
+static int
+softmac_netif_change_mtu(struct net_device *dev, int new_mtu)
+{
+        int error=0;
+
+        if (dev && dev->priv) {
+            CU_SOFTMAC_NETIF_INSTANCE* inst = dev->priv;
+            if (!(SOFTMAC_MIN_MTU <= new_mtu && new_mtu <= SOFTMAC_MAX_MTU)) {
+                printk(KERN_DEBUG "SoftMAC netif - %s: Invalid MTU size, %u < MTU < %u\n", \
+                                                  inst->netdev.name, SOFTMAC_MIN_MTU, SOFTMAC_MAX_MTU);
+                return -EINVAL;
+            }
+
+            write_lock(&(inst->devlock));
+            dev->mtu = new_mtu;
+            write_unlock(&(inst->devlock));
+        }
+        else {
+            return -EINVAL;
+        }
+
+        return error;
 }
 
 static int testtxfunc(CU_SOFTMAC_NETIF_HANDLE nif, void* priv,struct sk_buff* skb) {

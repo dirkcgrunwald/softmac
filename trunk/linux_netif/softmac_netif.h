@@ -31,6 +31,13 @@
  * @brief SoftMAC functions for creating a network interface 
  */
 
+/*
+ * Minimum and maximum acceptable MTU size
+ * needed in softmac_netif_change_mtu()
+ */
+#define SOFTMAC_MIN_MTU 68
+#define SOFTMAC_MAX_MTU 2290
+
 typedef void* CU_SOFTMAC_NETIF_HANDLE;
 
 typedef int (*CU_SOFTMAC_NETIF_TX_FUNC)(CU_SOFTMAC_NETIF_HANDLE,void*,struct sk_buff* packet);
