@@ -619,7 +619,10 @@ ieee80211_ioctl_siwap(struct ieee80211com *ic,
 	static const u_int8_t zero_bssid[IEEE80211_ADDR_LEN];
 
 	/* NB: should only be set when in STA mode */
-	if (ic->ic_opmode != IEEE80211_M_STA)
+        /* dh: changed line to also include ad-hoc modes */
+	if (ic->ic_opmode != IEEE80211_M_STA &&
+            ic->ic_opmode != IEEE80211_M_AHDEMO &&
+            ic->ic_opmode != IEEE80211_M_IBSS)
 		return -EINVAL;
 	IEEE80211_ADDR_COPY(ic->ic_des_bssid, &ap_addr->sa_data);
 	/* looks like a zero address disables */
